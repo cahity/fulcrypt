@@ -18,6 +18,7 @@ def rand_poly(rng, max_degree=12):
 # GF2Poly: construction and basics
 # =============================================================================
 
+
 class TestGF2PolyBasics:
     def test_rejects_negative(self):
         with pytest.raises(ValueError):
@@ -46,14 +47,17 @@ class TestGF2PolyBasics:
         assert P(1)
         assert P(0b100)
 
-    @pytest.mark.parametrize("bits, text", [
-        (0, "0"),
-        (1, "1"),
-        (0b10, "x"),
-        (0b11, "x + 1"),
-        (0b1011, "x^3 + x + 1"),
-        (0x11B, "x^8 + x^4 + x^3 + x + 1"),
-    ])
+    @pytest.mark.parametrize(
+        "bits, text",
+        [
+            (0, "0"),
+            (1, "1"),
+            (0b10, "x"),
+            (0b11, "x + 1"),
+            (0b1011, "x^3 + x + 1"),
+            (0x11B, "x^8 + x^4 + x^3 + x + 1"),
+        ],
+    )
     def test_repr(self, bits, text):
         assert repr(P(bits)) == text
 
@@ -61,6 +65,7 @@ class TestGF2PolyBasics:
 # =============================================================================
 # GF2Poly: arithmetic
 # =============================================================================
+
 
 class TestGF2PolyArithmetic:
     def test_add_is_xor(self):
@@ -78,24 +83,30 @@ class TestGF2PolyArithmetic:
     def test_neg_is_identity(self):
         assert -P(0b1011) == P(0b1011)
 
-    @pytest.mark.parametrize("a, b, product", [
-        (0b11, 0b11, 0b101),        # (x+1)^2 = x^2 + 1
-        (0b111, 0b11, 0b1001),      # (x^2+x+1)(x+1) = x^3 + 1
-        (0b1011, 0b1, 0b1011),      # times 1
-        (0b1011, 0b0, 0b0),         # times 0
-        (0b10, 0b10, 0b100),        # x * x = x^2
-    ])
+    @pytest.mark.parametrize(
+        "a, b, product",
+        [
+            (0b11, 0b11, 0b101),  # (x+1)^2 = x^2 + 1
+            (0b111, 0b11, 0b1001),  # (x^2+x+1)(x+1) = x^3 + 1
+            (0b1011, 0b1, 0b1011),  # times 1
+            (0b1011, 0b0, 0b0),  # times 0
+            (0b10, 0b10, 0b100),  # x * x = x^2
+        ],
+    )
     def test_mul(self, a, b, product):
         assert P(a) * P(b) == P(product)
         assert P(b) * P(a) == P(product)
 
-    @pytest.mark.parametrize("a, b, q, r", [
-        (0b1001, 0b11, 0b111, 0b0),       # x^3 + 1 = (x+1)(x^2+x+1)
-        (0b1011, 0b11, 0b110, 0b1),       # x^3+x+1 = (x+1)(x^2+x) + 1
-        (0b11, 0b1011, 0b0, 0b11),        # smaller degree: quotient 0
-        (0b0, 0b11, 0b0, 0b0),            # zero numerator
-        (0b1011, 0b1, 0b1011, 0b0),       # divide by 1
-    ])
+    @pytest.mark.parametrize(
+        "a, b, q, r",
+        [
+            (0b1001, 0b11, 0b111, 0b0),  # x^3 + 1 = (x+1)(x^2+x+1)
+            (0b1011, 0b11, 0b110, 0b1),  # x^3+x+1 = (x+1)(x^2+x) + 1
+            (0b11, 0b1011, 0b0, 0b11),  # smaller degree: quotient 0
+            (0b0, 0b11, 0b0, 0b0),  # zero numerator
+            (0b1011, 0b1, 0b1011, 0b0),  # divide by 1
+        ],
+    )
     def test_divmod_known(self, a, b, q, r):
         assert divmod(P(a), P(b)) == (P(q), P(r))
         assert P(a) // P(b) == P(q)
@@ -109,15 +120,18 @@ class TestGF2PolyArithmetic:
         with pytest.raises(ZeroDivisionError):
             P(0b101) // P(0)
 
-    @pytest.mark.parametrize("base, e, result", [
-        (0b11, 0, 0b1),
-        (0b11, 1, 0b11),
-        (0b11, 2, 0b101),           # (x+1)^2 = x^2 + 1
-        (0b11, 4, 0b10001),         # (x+1)^4 = x^4 + 1
-        (0b10, 10, 1 << 10),        # x^10
-        (0b0, 0, 0b1),              # 0^0 = 1 by convention
-        (0b0, 3, 0b0),
-    ])
+    @pytest.mark.parametrize(
+        "base, e, result",
+        [
+            (0b11, 0, 0b1),
+            (0b11, 1, 0b11),
+            (0b11, 2, 0b101),  # (x+1)^2 = x^2 + 1
+            (0b11, 4, 0b10001),  # (x+1)^4 = x^4 + 1
+            (0b10, 10, 1 << 10),  # x^10
+            (0b0, 0, 0b1),  # 0^0 = 1 by convention
+            (0b0, 3, 0b0),
+        ],
+    )
     def test_pow(self, base, e, result):
         assert P(base) ** e == P(result)
 
@@ -130,18 +144,22 @@ class TestGF2PolyArithmetic:
 # GF2Poly: type safety (no silent int coercion)
 # =============================================================================
 
+
 class TestGF2PolyTypeErrors:
-    @pytest.mark.parametrize("op", [
-        lambda: P(1) + 1,
-        lambda: 1 + P(1),
-        lambda: P(1) - 1,
-        lambda: P(3) * 2,
-        lambda: 2 * P(3),
-        lambda: P(3) % 2,
-        lambda: P(3) // 2,
-        lambda: divmod(P(3), 2),
-        lambda: P(3) ** P(2),
-    ])
+    @pytest.mark.parametrize(
+        "op",
+        [
+            lambda: P(1) + 1,
+            lambda: 1 + P(1),
+            lambda: P(1) - 1,
+            lambda: P(3) * 2,
+            lambda: 2 * P(3),
+            lambda: P(3) % 2,
+            lambda: P(3) // 2,
+            lambda: divmod(P(3), 2),
+            lambda: P(3) ** P(2),
+        ],
+    )
     def test_mixed_with_int_raises(self, op):
         with pytest.raises(TypeError):
             op()
@@ -150,6 +168,7 @@ class TestGF2PolyTypeErrors:
 # =============================================================================
 # GF2Poly: ring laws on random inputs
 # =============================================================================
+
 
 class TestGF2PolyRingLaws:
     N = 300
@@ -198,7 +217,7 @@ class TestGF2PolyRingLaws:
         rng = random.Random(6)
         for _ in range(self.N):
             a, b = rand_poly(rng), rand_poly(rng)
-            assert (a + b) ** 2 == a ** 2 + b ** 2
+            assert (a + b) ** 2 == a**2 + b**2
 
     def test_pow_matches_repeated_mul(self):
         rng = random.Random(7)
@@ -208,37 +227,51 @@ class TestGF2PolyRingLaws:
             expected = P(1)
             for _ in range(e):
                 expected = expected * a
-            assert a ** e == expected
+            assert a**e == expected
 
 
 # =============================================================================
 # GF2Poly: irreducibility
 # =============================================================================
 
+
 class TestGF2PolyIrreducible:
-    @pytest.mark.parametrize("bits", [
-        0b10, 0b11,                       # x, x + 1
-        0b111,                            # x^2 + x + 1
-        0b1011, 0b1101,                   # degree 3
-        0b10011, 0b11001, 0b11111,        # degree 4
-        0x11B,                            # AES modulus
-    ])
+    @pytest.mark.parametrize(
+        "bits",
+        [
+            0b10,
+            0b11,  # x, x + 1
+            0b111,  # x^2 + x + 1
+            0b1011,
+            0b1101,  # degree 3
+            0b10011,
+            0b11001,
+            0b11111,  # degree 4
+            0x11B,  # AES modulus
+        ],
+    )
     def test_irreducible(self, bits):
         assert P(bits).is_irreducible()
 
-    @pytest.mark.parametrize("bits", [
-        0b0, 0b1,                         # zero and units are not irreducible
-        0b100,                            # x^2
-        0b101,                            # (x + 1)^2
-        0b110,                            # x(x + 1)
-        0b1001,                           # (x + 1)(x^2 + x + 1)
-        0b10001,                          # (x + 1)^4
-        0b10101,                          # (x^2 + x + 1)^2
-    ])
+    @pytest.mark.parametrize(
+        "bits",
+        [
+            0b0,
+            0b1,  # zero and units are not irreducible
+            0b100,  # x^2
+            0b101,  # (x + 1)^2
+            0b110,  # x(x + 1)
+            0b1001,  # (x + 1)(x^2 + x + 1)
+            0b10001,  # (x + 1)^4
+            0b10101,  # (x^2 + x + 1)^2
+        ],
+    )
     def test_reducible(self, bits):
         assert not P(bits).is_irreducible()
 
-    @pytest.mark.parametrize("degree, count", [(1, 2), (2, 1), (3, 2), (4, 3), (5, 6), (6, 9), (7, 18), (8, 30)])
+    @pytest.mark.parametrize(
+        "degree, count", [(1, 2), (2, 1), (3, 2), (4, 3), (5, 6), (6, 9), (7, 18), (8, 30)]
+    )
     def test_count_by_degree(self, degree, count):
         # Known counts of irreducible polynomials over GF(2) (OEIS A001037).
         found = sum(P(b).is_irreducible() for b in range(1 << degree, 1 << (degree + 1)))

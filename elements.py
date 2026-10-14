@@ -1,13 +1,18 @@
+"""Element classes: GF(2)[x] polynomials, integers mod n, and GF(2^n) fields."""
+
 from __future__ import annotations
 
 import functools
 from dataclasses import dataclass
+from typing import Any
 
 from algorithms import inverse_mod, power
 
 
 @dataclass(frozen=True)
 class GF2Poly:
+    """A polynomial over GF(2), stored as a bit vector (0b1011 = x^3 + x + 1)."""
+
     bits: int
 
     def __post_init__(self):
@@ -16,6 +21,7 @@ class GF2Poly:
 
     @property
     def degree(self):
+        """Return the degree; the zero polynomial has degree -1."""
         return self.bits.bit_length() - 1
 
     def __divmod__(self, other: GF2Poly) -> tuple[GF2Poly, GF2Poly]:
@@ -34,8 +40,8 @@ class GF2Poly:
         return GF2Poly(quotient), GF2Poly(a)
 
     def is_irreducible(self) -> bool:
-        """
-        Primality check for a polynomial.
+        """Check whether the polynomial is irreducible over GF(2).
+
         A reducible polynomial has a factor of degree at most half its degree.
         """
         if self.bits < 2:
@@ -106,8 +112,10 @@ class GF2Poly:
             return NotImplemented
         return self + other
 
+
 @functools.cache
-def ZMod(n: int) -> type:
+def ZMod(n: int) -> type[Any]:
+    """Return the element class of the integers modulo n (cached per n)."""
     if n < 2:
         raise ValueError(f"Zn with n={n} can not be constructed. n must be at least 2.")
 
@@ -175,6 +183,7 @@ def ZMod(n: int) -> type:
             return f"{self.value} (mod {self.modulus})"
 
         def inverse(self):
+            """Return the multiplicative inverse; ValueError if none exists."""
             return type(self)(inverse_mod(self.value, self.modulus))
 
         def __truediv__(self, other):
@@ -195,13 +204,13 @@ def ZMod(n: int) -> type:
             """Return all elements of Z/nZ."""
             return [cls(i) for i in range(cls.modulus)]
 
-
     Zn.__name__ = Zn.__qualname__ = f"Z{n}"
     return Zn
 
 
 @functools.cache
-def GF2n(modulus: int) -> type:
+def GF2n(modulus: int) -> type[Any]:
+    """Return the element class of GF(2)[x] modulo an irreducible polynomial (cached)."""
     m = GF2Poly(modulus)
     if not m.is_irreducible():
         raise ValueError(f"GF(2^{m.degree}) can not be constructed. {m} is reducible.")
@@ -233,6 +242,7 @@ def GF2n(modulus: int) -> type:
             return type(self)((GF2Poly(self.bits) * GF2Poly(other.bits)).bits)
 
         def inverse(self):
+            """Return the multiplicative inverse; ValueError for zero."""
             return type(self)(inverse_mod(GF2Poly(self.bits), m).bits)
 
         def __truediv__(self, other):

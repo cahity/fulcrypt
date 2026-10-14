@@ -11,21 +11,23 @@ import random
 
 import pytest
 
-from elements import GF2Poly
 from algebra import Field, Group
 from algorithms import xgcd
-
+from elements import GF2Poly
 
 # --- Adapter: edit these two to match your signature -------------------------
 
+
 def int_egcd(a, b):
     return xgcd(a, b)
+
 
 def poly_egcd(a, b):
     return tuple(x.bits for x in xgcd(GF2Poly(a), GF2Poly(b)))
 
 
 # --- GF(2)[x] reference helpers (test-side only) ------------------------------
+
 
 def pmul(a, b):
     """Carry-less product over GF(2)."""
@@ -51,6 +53,7 @@ def pdivides(d, a):
 
 # --- Shared assertions --------------------------------------------------------
 
+
 def check_int(a, b):
     d, u, v = int_egcd(a, b)
     assert all(isinstance(x, int) for x in (d, u, v))
@@ -61,7 +64,9 @@ def check_int(a, b):
 
 def check_poly(a, b):
     d, u, v = poly_egcd(a, b)
-    assert all(isinstance(x, int) and x >= 0 for x in (d, u, v)), "polynomials must be nonnegative ints"
+    assert all(isinstance(x, int) and x >= 0 for x in (d, u, v)), (
+        "polynomials must be nonnegative ints"
+    )
     assert pmul(u, a) ^ pmul(v, b) == d, f"Bezout fails for ({a:#b}, {b:#b})"
     # Divides both and is a combination of both => it is the gcd (monic is automatic over GF(2)).
     assert pdivides(d, a) and pdivides(d, b), f"{d:#b} does not divide both {a:#b} and {b:#b}"
@@ -72,20 +77,24 @@ def check_poly(a, b):
 # Integers
 # =============================================================================
 
+
 class TestIntegerKnownValues:
-    @pytest.mark.parametrize("a, b, d", [
-        (240, 46, 2),
-        (46, 240, 2),
-        (12, 18, 6),
-        (17, 5, 1),
-        (99, 78, 3),
-        (1071, 462, 21),
-        (270, 192, 6),
-        (1, 1, 1),
-        (7, 7, 7),
-        (13, 1, 1),
-        (1, 13, 1),
-    ])
+    @pytest.mark.parametrize(
+        "a, b, d",
+        [
+            (240, 46, 2),
+            (46, 240, 2),
+            (12, 18, 6),
+            (17, 5, 1),
+            (99, 78, 3),
+            (1071, 462, 21),
+            (270, 192, 6),
+            (1, 1, 1),
+            (7, 7, 7),
+            (13, 1, 1),
+            (1, 13, 1),
+        ],
+    )
     def test_known(self, a, b, d):
         assert check_int(a, b)[0] == d
 
@@ -124,12 +133,15 @@ class TestIntegerHard:
         for i in range(2, 299):
             assert check_int(f[i + 1], f[i])[0] == 1
 
-    @pytest.mark.parametrize("a, b", [
-        (2**127 - 1, 2**89 - 1),          # Mersenne primes
-        (2**521 - 1, 2**607 - 1),
-        (10**50 + 151, 10**40 + 7),
-        (2**200 * 3**50, 2**150 * 3**80 * 5),
-    ])
+    @pytest.mark.parametrize(
+        "a, b",
+        [
+            (2**127 - 1, 2**89 - 1),  # Mersenne primes
+            (2**521 - 1, 2**607 - 1),
+            (10**50 + 151, 10**40 + 7),
+            (2**200 * 3**50, 2**150 * 3**80 * 5),
+        ],
+    )
     def test_large(self, a, b):
         check_int(a, b)
 
@@ -192,12 +204,12 @@ class TestIntegerModularInverse:
 # GF(2)[x] polynomials (bit-vector ints)
 # =============================================================================
 
-AES = 0x11B              # x^8 + x^4 + x^3 + x + 1
+AES = 0x11B  # x^8 + x^4 + x^3 + x + 1
 IRREDUCIBLE = {
-    2: 0b111,            # x^2 + x + 1
-    3: 0b1011,           # x^3 + x + 1
-    4: 0b10011,          # x^4 + x + 1
-    5: 0b100101,         # x^5 + x^2 + 1
+    2: 0b111,  # x^2 + x + 1
+    3: 0b1011,  # x^3 + x + 1
+    4: 0b10011,  # x^4 + x + 1
+    5: 0b100101,  # x^5 + x^2 + 1
     8: AES,
 }
 
@@ -206,8 +218,8 @@ class TestPolyHelpers:
     """Sanity checks on the test-side helpers, so failures point at your code."""
 
     def test_pmul(self):
-        assert pmul(0b11, 0b11) == 0b101          # (x+1)^2 = x^2 + 1
-        assert pmul(0b111, 0b11) == 0b1001        # (x^2+x+1)(x+1) = x^3 + 1
+        assert pmul(0b11, 0b11) == 0b101  # (x+1)^2 = x^2 + 1
+        assert pmul(0b111, 0b11) == 0b1001  # (x^2+x+1)(x+1) = x^3 + 1
 
     def test_pmod(self):
         assert pmod(0b1001, 0b11) == 0
@@ -215,17 +227,20 @@ class TestPolyHelpers:
 
 
 class TestPolyKnownValues:
-    @pytest.mark.parametrize("a, b, d", [
-        (0b101, 0b11, 0b11),            # x^2+1 = (x+1)^2
-        (0b11, 0b101, 0b11),
-        (0b1001, 0b111, 0b111),         # x^3+1 = (x+1)(x^2+x+1)
-        (0b1001, 0b101, 0b11),
-        (0b111, 0b11, 0b1),             # x^2+x+1 is irreducible
-        (0b10, 0b11, 0b1),              # x and x+1
-        (0b100, 0b110, 0b10),           # x^2 and x^2+x share x
-        (0b1, 0b1, 0b1),
-        (AES, 0b11, 0b1),
-    ])
+    @pytest.mark.parametrize(
+        "a, b, d",
+        [
+            (0b101, 0b11, 0b11),  # x^2+1 = (x+1)^2
+            (0b11, 0b101, 0b11),
+            (0b1001, 0b111, 0b111),  # x^3+1 = (x+1)(x^2+x+1)
+            (0b1001, 0b101, 0b11),
+            (0b111, 0b11, 0b1),  # x^2+x+1 is irreducible
+            (0b10, 0b11, 0b1),  # x and x+1
+            (0b100, 0b110, 0b10),  # x^2 and x^2+x share x
+            (0b1, 0b1, 0b1),
+            (AES, 0b11, 0b1),
+        ],
+    )
     def test_known(self, a, b, d):
         assert check_poly(a, b)[0] == d
 
@@ -286,8 +301,8 @@ class TestPolyStructured:
                 assert check_poly(a, b)[0] == (a if i <= j else b)
 
     def test_high_degree(self):
-        a = (1 << 233) | (1 << 74) | 1      # x^233 + x^74 + 1 (NIST B-233 trinomial)
-        b = (1 << 163) | 0b11001001         # x^163 + x^7 + x^6 + x^3 + 1 (B-163)
+        a = (1 << 233) | (1 << 74) | 1  # x^233 + x^74 + 1 (NIST B-233 trinomial)
+        b = (1 << 163) | 0b11001001  # x^163 + x^7 + x^6 + x^3 + 1 (B-163)
         check_poly(a, b)
 
 
@@ -323,11 +338,14 @@ class TestPolyFieldInverse:
             assert d == 1
             assert pmod(pmul(pmod(u, m), a), m) == 1
 
-    @pytest.mark.parametrize("m, a", [
-        (0b101, 0b11),        # x^2+1 is reducible: (x+1)^2
-        (0b1001, 0b111),      # x^3+1 = (x+1)(x^2+x+1)
-        (0b10001, 0b11),      # x^4+1 = (x+1)^4
-    ])
+    @pytest.mark.parametrize(
+        "m, a",
+        [
+            (0b101, 0b11),  # x^2+1 is reducible: (x+1)^2
+            (0b1001, 0b111),  # x^3+1 = (x+1)(x^2+x+1)
+            (0b10001, 0b11),  # x^4+1 = (x+1)^4
+        ],
+    )
     def test_reducible_modulus_has_noninvertible(self, m, a):
         assert check_poly(a, m)[0] != 1
 
@@ -343,6 +361,7 @@ class TestPolyFieldInverse:
 # =============================================================================
 # gcd only: checks d and ignores u, v.  Run with: pytest -m gcd
 # =============================================================================
+
 
 def int_gcd(a, b):
     return int_egcd(a, b)[0]
@@ -363,17 +382,34 @@ def brute_poly_gcd(a, b):
     best = 1
     for d in range(1, 1 << (min(a.bit_length(), b.bit_length()))):
         if pdivides(d, a) and pdivides(d, b):
-            best = d    # candidates grow in degree, so the last hit is the gcd
+            best = d  # candidates grow in degree, so the last hit is the gcd
     return best
 
 
 @pytest.mark.gcd
 class TestIntegerGcdOnly:
-    @pytest.mark.parametrize("a, b, d", [
-        (240, 46, 2), (46, 240, 2), (12, 18, 6), (17, 5, 1), (99, 78, 3),
-        (1071, 462, 21), (270, 192, 6), (1, 1, 1), (7, 7, 7), (13, 1, 1), (1, 13, 1),
-        (0, 0, 0), (5, 0, 5), (0, 5, 5), (5, 25, 5), (25, 5, 5), (84, 36, 12),
-    ])
+    @pytest.mark.parametrize(
+        "a, b, d",
+        [
+            (240, 46, 2),
+            (46, 240, 2),
+            (12, 18, 6),
+            (17, 5, 1),
+            (99, 78, 3),
+            (1071, 462, 21),
+            (270, 192, 6),
+            (1, 1, 1),
+            (7, 7, 7),
+            (13, 1, 1),
+            (1, 13, 1),
+            (0, 0, 0),
+            (5, 0, 5),
+            (0, 5, 5),
+            (5, 25, 5),
+            (25, 5, 5),
+            (84, 36, 12),
+        ],
+    )
     def test_known(self, a, b, d):
         assert int_gcd(a, b) == d
 
@@ -387,12 +423,15 @@ class TestIntegerGcdOnly:
         for i in range(2, 299):
             assert int_gcd(f[i + 1], f[i]) == 1
 
-    @pytest.mark.parametrize("a, b", [
-        (2**127 - 1, 2**89 - 1),
-        (2**521 - 1, 2**607 - 1),
-        (2**200 * 3**50, 2**150 * 3**80 * 5),
-        ((2**64 + 13) * 1009, (2**64 + 13) * 2017),
-    ])
+    @pytest.mark.parametrize(
+        "a, b",
+        [
+            (2**127 - 1, 2**89 - 1),
+            (2**521 - 1, 2**607 - 1),
+            (2**200 * 3**50, 2**150 * 3**80 * 5),
+            ((2**64 + 13) * 1009, (2**64 + 13) * 2017),
+        ],
+    )
     def test_large(self, a, b):
         assert int_gcd(a, b) == math.gcd(a, b)
 
@@ -416,13 +455,27 @@ class TestIntegerGcdOnly:
 
 @pytest.mark.gcd
 class TestPolyGcdOnly:
-    @pytest.mark.parametrize("a, b, d", [
-        (0b101, 0b11, 0b11), (0b11, 0b101, 0b11), (0b1001, 0b111, 0b111),
-        (0b1001, 0b101, 0b11), (0b111, 0b11, 0b1), (0b10, 0b11, 0b1),
-        (0b100, 0b110, 0b10), (0b1, 0b1, 0b1), (AES, 0b11, 0b1), (0x53, AES, 0b1),
-        (0, 0, 0), (AES, 0, AES), (0, AES, AES), (AES, AES, AES),
-        (1 << 10, 1 << 4, 1 << 4), (0b1101, 0b1011, 0b1),
-    ])
+    @pytest.mark.parametrize(
+        "a, b, d",
+        [
+            (0b101, 0b11, 0b11),
+            (0b11, 0b101, 0b11),
+            (0b1001, 0b111, 0b111),
+            (0b1001, 0b101, 0b11),
+            (0b111, 0b11, 0b1),
+            (0b10, 0b11, 0b1),
+            (0b100, 0b110, 0b10),
+            (0b1, 0b1, 0b1),
+            (AES, 0b11, 0b1),
+            (0x53, AES, 0b1),
+            (0, 0, 0),
+            (AES, 0, AES),
+            (0, AES, AES),
+            (AES, AES, AES),
+            (1 << 10, 1 << 4, 1 << 4),
+            (0b1101, 0b1011, 0b1),
+        ],
+    )
     def test_known(self, a, b, d):
         assert poly_gcd(a, b) == d
 
@@ -472,4 +525,3 @@ class TestPolyGcdOnly:
             a, b = pmul(f, rng.getrandbits(16)), pmul(f, rng.getrandbits(16))
             d = poly_gcd(a, b)
             assert pdivides(d, a) and pdivides(d, b) and (pdivides(f, d) or a == b == 0)
-

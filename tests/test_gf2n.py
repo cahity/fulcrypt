@@ -6,16 +6,17 @@ import random
 import pytest
 
 from algorithms import power
-from elements import GF2Poly, GF2n, ZMod
+from elements import GF2n, GF2Poly, ZMod
 
-AES = GF2n(0x11B)        # x^8 + x^4 + x^3 + x + 1
-GF8 = GF2n(0b1011)       # x^3 + x + 1
-GF16 = GF2n(0b10011)     # x^4 + x + 1
+AES = GF2n(0x11B)  # x^8 + x^4 + x^3 + x + 1
+GF8 = GF2n(0b1011)  # x^3 + x + 1
+GF16 = GF2n(0b10011)  # x^4 + x + 1
 
 
 # =============================================================================
 # The factory
 # =============================================================================
+
 
 class TestFactory:
     def test_cached(self):
@@ -26,18 +27,24 @@ class TestFactory:
         # Same size, different irreducible polynomial -> different classes.
         assert GF2n(0b1011) is not GF2n(0b1101)
 
-    @pytest.mark.parametrize("modulus", [
-        0, 1,             # not polynomials of degree >= 1
-        0b100,            # x^2
-        0b101,            # (x + 1)^2
-        0b1001,           # (x + 1)(x^2 + x + 1)
-        0x11A,            # divisible by x
-    ])
+    @pytest.mark.parametrize(
+        "modulus",
+        [
+            0,
+            1,  # not polynomials of degree >= 1
+            0b100,  # x^2
+            0b101,  # (x + 1)^2
+            0b1001,  # (x + 1)(x^2 + x + 1)
+            0x11A,  # divisible by x
+        ],
+    )
     def test_rejects_reducible_modulus(self, modulus):
         with pytest.raises(ValueError):
             GF2n(modulus)
 
-    @pytest.mark.parametrize("modulus, name", [(0x11B, "GF(2^8)"), (0b1011, "GF(2^3)"), (0b10011, "GF(2^4)")])
+    @pytest.mark.parametrize(
+        "modulus, name", [(0x11B, "GF(2^8)"), (0b1011, "GF(2^3)"), (0b10011, "GF(2^4)")]
+    )
     def test_name_uses_degree(self, modulus, name):
         assert GF2n(modulus).__name__ == name
 
@@ -57,13 +64,17 @@ class TestFactory:
 # Elements: construction, equality, hashing
 # =============================================================================
 
+
 class TestElement:
-    @pytest.mark.parametrize("raw, reduced", [
-        (0x57, 0x57),
-        (0x11B, 0x00),    # the modulus itself reduces to 0
-        (0x100, 0x1B),    # x^8 = x^4 + x^3 + x + 1
-        (0x200, 0x36),    # x^9 = x * x^8
-    ])
+    @pytest.mark.parametrize(
+        "raw, reduced",
+        [
+            (0x57, 0x57),
+            (0x11B, 0x00),  # the modulus itself reduces to 0
+            (0x100, 0x1B),  # x^8 = x^4 + x^3 + x + 1
+            (0x200, 0x36),  # x^9 = x * x^8
+        ],
+    )
     def test_reduces_on_construction(self, raw, reduced):
         assert AES(raw).bits == reduced
 
@@ -97,11 +108,14 @@ class TestElement:
         # Lists use repr, so they stay short.
         assert repr([AES(1), AES(0xCA)]) == "[0x01, 0xca]"
 
-    @pytest.mark.parametrize("bits, text", [
-        (0x57, "x^6 + x^4 + x^2 + x + 1 (mod x^8 + x^4 + x^3 + x + 1)"),
-        (0x01, "1 (mod x^8 + x^4 + x^3 + x + 1)"),
-        (0x00, "0 (mod x^8 + x^4 + x^3 + x + 1)"),
-    ])
+    @pytest.mark.parametrize(
+        "bits, text",
+        [
+            (0x57, "x^6 + x^4 + x^2 + x + 1 (mod x^8 + x^4 + x^3 + x + 1)"),
+            (0x01, "1 (mod x^8 + x^4 + x^3 + x + 1)"),
+            (0x00, "0 (mod x^8 + x^4 + x^3 + x + 1)"),
+        ],
+    )
     def test_str(self, bits, text):
         assert str(AES(bits)) == text
         assert f"{AES(bits)}" == text
@@ -110,6 +124,7 @@ class TestElement:
 # =============================================================================
 # Arithmetic
 # =============================================================================
+
 
 class TestArithmetic:
     def test_add_is_xor(self):
@@ -124,39 +139,45 @@ class TestArithmetic:
     def test_neg_is_identity(self):
         assert -AES(0x57) == AES(0x57)
 
-    @pytest.mark.parametrize("a, b, product", [
-        (0x57, 0x83, 0xC1),   # FIPS-197, section 4.2
-        (0x57, 0x13, 0xFE),   # FIPS-197, section 4.2.1
-        (0x57, 0x02, 0xAE),   # xtime chain from FIPS-197
-        (0x57, 0x04, 0x47),
-        (0x57, 0x08, 0x8E),
-        (0x57, 0x10, 0x07),
-        (0x57, 0x01, 0x57),
-        (0x57, 0x00, 0x00),
-    ])
+    @pytest.mark.parametrize(
+        "a, b, product",
+        [
+            (0x57, 0x83, 0xC1),  # FIPS-197, section 4.2
+            (0x57, 0x13, 0xFE),  # FIPS-197, section 4.2.1
+            (0x57, 0x02, 0xAE),  # xtime chain from FIPS-197
+            (0x57, 0x04, 0x47),
+            (0x57, 0x08, 0x8E),
+            (0x57, 0x10, 0x07),
+            (0x57, 0x01, 0x57),
+            (0x57, 0x00, 0x00),
+        ],
+    )
     def test_mul_fips197(self, a, b, product):
         assert AES(a) * AES(b) == AES(product)
         assert AES(b) * AES(a) == AES(product)
 
     def test_results_keep_class(self):
         a, b = AES(0x57), AES(0x83)
-        for result in (a + b, a - b, a * b, -a, a / b, a ** 3, a.inverse()):
+        for result in (a + b, a - b, a * b, -a, a / b, a**3, a.inverse()):
             assert type(result) is AES
 
-    @pytest.mark.parametrize("op", [
-        lambda: AES(1) + 1,           # ints are ambiguous here: no coercion
-        lambda: 1 + AES(1),
-        lambda: AES(1) - 1,
-        lambda: AES(3) * 2,
-        lambda: 2 * AES(3),
-        lambda: AES(3) / 1,
-        lambda: 1 / AES(3),
-        lambda: AES(1) + GF2Poly(1),
-        lambda: AES(1) + ZMod(2)(1),
-        lambda: GF8(1) + GF16(1),
-        lambda: GF8(1) * GF16(1),
-        lambda: AES(3) ** AES(2),
-    ])
+    @pytest.mark.parametrize(
+        "op",
+        [
+            lambda: AES(1) + 1,  # ints are ambiguous here: no coercion
+            lambda: 1 + AES(1),
+            lambda: AES(1) - 1,
+            lambda: AES(3) * 2,
+            lambda: 2 * AES(3),
+            lambda: AES(3) / 1,
+            lambda: 1 / AES(3),
+            lambda: AES(1) + GF2Poly(1),
+            lambda: AES(1) + ZMod(2)(1),
+            lambda: GF8(1) + GF16(1),
+            lambda: GF8(1) * GF16(1),
+            lambda: AES(3) ** AES(2),
+        ],
+    )
     def test_mixing_raises_type_error(self, op):
         with pytest.raises(TypeError):
             op()
@@ -166,9 +187,10 @@ class TestArithmetic:
 # Inverses and division
 # =============================================================================
 
+
 class TestInverse:
     def test_known(self):
-        assert AES(0x53).inverse() == AES(0xCA)   # FIPS-197, section 5.1.1
+        assert AES(0x53).inverse() == AES(0xCA)  # FIPS-197, section 5.1.1
         assert AES(0xCA).inverse() == AES(0x53)
         assert AES(1).inverse() == AES(1)
 
@@ -193,6 +215,7 @@ class TestInverse:
 # =============================================================================
 # Powers
 # =============================================================================
+
 
 class TestPower:
     def test_zero_and_one(self):
@@ -230,7 +253,7 @@ class TestPower:
         rng = random.Random(1)
         for _ in range(200):
             a, b = AES(rng.randrange(256)), AES(rng.randrange(256))
-            assert (a + b) ** 2 == a ** 2 + b ** 2
+            assert (a + b) ** 2 == a**2 + b**2
 
     def test_generic_power_works_on_gf2n(self):
         assert power(AES(0x02), 8) == AES(0x1B)
@@ -239,6 +262,7 @@ class TestPower:
 # =============================================================================
 # Field laws
 # =============================================================================
+
 
 class TestFieldLaws:
     def test_gf8_exhaustive(self):
@@ -266,20 +290,35 @@ class TestFieldLaws:
 # Application: the AES S-box (inverse in GF(2^8), then an affine map over GF(2))
 # =============================================================================
 
+
 def sbox(byte):
     b = AES(byte).inverse().bits if byte else 0
     out = 0
     for i in range(8):
-        bit = (b >> i) ^ (b >> ((i + 4) % 8)) ^ (b >> ((i + 5) % 8)) \
-            ^ (b >> ((i + 6) % 8)) ^ (b >> ((i + 7) % 8)) ^ (0x63 >> i)
+        bit = (
+            (b >> i)
+            ^ (b >> ((i + 4) % 8))
+            ^ (b >> ((i + 5) % 8))
+            ^ (b >> ((i + 6) % 8))
+            ^ (b >> ((i + 7) % 8))
+            ^ (0x63 >> i)
+        )
         out |= (bit & 1) << i
     return out
 
 
 class TestSbox:
-    @pytest.mark.parametrize("byte, expected", [
-        (0x00, 0x63), (0x01, 0x7C), (0x53, 0xED), (0x10, 0xCA), (0xFF, 0x16), (0xC9, 0xDD),
-    ])
+    @pytest.mark.parametrize(
+        "byte, expected",
+        [
+            (0x00, 0x63),
+            (0x01, 0x7C),
+            (0x53, 0xED),
+            (0x10, 0xCA),
+            (0xFF, 0x16),
+            (0xC9, 0xDD),
+        ],
+    )
     def test_known_entries(self, byte, expected):
         assert sbox(byte) == expected
 

@@ -1,11 +1,13 @@
-import algebra
-from elements import GF2Poly, ZMod, GF2n
+"""Printed walk-throughs of groups, rings and fields built from the element classes."""
 
+import algebra
+from elements import GF2n, GF2Poly, ZMod
 
 Z2, Z6, Z7 = ZMod(2), ZMod(6), ZMod(7)
 
 
 def ex1():
+    """Show that Z6 under addition is a group."""
     group = algebra.as_ring(Z6).additive_group
 
     print("1. Addition forms a group (modulo 6)")
@@ -18,6 +20,7 @@ def ex1():
 
 
 def ex2():
+    """Show that Z6 is a ring but not a field."""
     ring = algebra.as_ring(Z6)
 
     print("2. A ring need not be a field (modulo 6)")
@@ -34,9 +37,13 @@ def ex2():
 
 
 def ex3():
+    """Show that Z7 is a field."""
     field = algebra.as_field(Z7)
 
-    print("3. A field is a ring in which every nonzero element has a multiplicative inverse (modulo 7)")
+    print(
+        "3. A field is a ring in which every nonzero element has a multiplicative inverse"
+        " (modulo 7)"
+    )
     print("Elements:", Z7.all())
     print("An inverse of 2 would satisfy 2 * b = 1 (mod 7).")
     print("Try every possible b:")
@@ -50,6 +57,7 @@ def ex3():
 
 
 def ex4():
+    """Show division as multiplication by an inverse in Z7."""
     field = algebra.as_field(Z7)
     inverse = field.inverse(Z7(2))
     quotient = field.divide(Z7(3), Z7(2))
@@ -67,6 +75,7 @@ def ex4():
 
 
 def ex5():
+    """Show that bits form the field Z2 (XOR and AND)."""
     field = algebra.as_field(Z2)
 
     print("5. Bits form a field (modulo 2)")
@@ -80,6 +89,7 @@ def ex5():
 
 
 def ex6():
+    """Show arithmetic in GF(2^3) built from x^3 + x + 1."""
     print("ex6")
     modulus = GF2Poly(0b1011)  # x^3 + x + 1
     F = GF2n(modulus.bits)
@@ -93,7 +103,7 @@ def ex6():
     print("a:", a)
     print("b:", b)
     print("Modulus:", modulus)
-    
+
     print("a is irreducible:", GF2Poly(a.bits).is_irreducible())
 
     print("a + b =", field.add(a, b))

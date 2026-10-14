@@ -1,4 +1,6 @@
-"""Tests for as_ring and as_field: checking the ring and field axioms on element classes by brute force.
+"""Tests for as_ring and as_field.
+
+They check the ring and field axioms on element classes by brute force.
 
 The verifiers are O(n^3), so keep sizes small (<= 16 elements).
 """
@@ -10,10 +12,10 @@ import pytest
 from algebra import Field, Ring, as_field, as_ring
 from elements import GF2n, ZMod
 
-GF4 = GF2n(0b111)        # x^2 + x + 1
-GF8 = GF2n(0b1011)       # x^3 + x + 1
-GF8b = GF2n(0b1101)      # x^3 + x^2 + 1, same size, different polynomial
-GF16 = GF2n(0b10011)     # x^4 + x + 1
+GF4 = GF2n(0b111)  # x^2 + x + 1
+GF8 = GF2n(0b1011)  # x^3 + x + 1
+GF8b = GF2n(0b1101)  # x^3 + x^2 + 1, same size, different polynomial
+GF16 = GF2n(0b10011)  # x^4 + x + 1
 
 PRIMES = [2, 3, 5, 7, 11, 13]
 FIELDS = [ZMod(p) for p in PRIMES] + [GF4, GF8, GF8b, GF16]
@@ -31,6 +33,7 @@ def ids(F):
 # =============================================================================
 # Accepts fields
 # =============================================================================
+
 
 class TestAcceptsFields:
     @pytest.mark.parametrize("F", FIELDS, ids=ids)
@@ -52,6 +55,7 @@ class TestAcceptsFields:
 # Rejects rings that are not fields
 # =============================================================================
 
+
 class TestRejectsNonFields:
     @pytest.mark.parametrize("n", NOT_FIELDS)
     def test_composite_modulus(self, n):
@@ -64,6 +68,7 @@ class TestRejectsNonFields:
 # =============================================================================
 # The verifier finds identities and inverses by searching every element.
 # The element classes compute them with xgcd. Two independent methods, same answers.
+
 
 class TestAgreesWithElements:
     @pytest.mark.parametrize("F", FIELDS, ids=ids)
@@ -102,6 +107,7 @@ class TestAgreesWithElements:
 # =============================================================================
 # Structure facts
 # =============================================================================
+
 
 class TestStructure:
     @pytest.mark.parametrize("F", [GF4, GF8, GF8b, GF16, ZMod(2)], ids=ids)
@@ -165,8 +171,12 @@ class TestAsRing:
     def test_zero_divisors_z6(self):
         Z6 = ZMod(6)
         r = ring(Z6)
-        pairs = {(int(a), int(b)) for a in Z6.all()[1:] for b in Z6.all()[1:]
-                 if r.multiply(a, b) == r.zero}
+        pairs = {
+            (int(a), int(b))
+            for a in Z6.all()[1:]
+            for b in Z6.all()[1:]
+            if r.multiply(a, b) == r.zero
+        }
         assert pairs == {(2, 3), (3, 2), (3, 4), (4, 3)}
 
     @pytest.mark.parametrize("R", [ZMod(p) for p in PRIMES] + [GF4, GF8], ids=ids)
@@ -185,6 +195,6 @@ class TestAsRing:
             try:
                 a.inverse()
                 invertible = True
-            except (ValueError, ZeroDivisionError):
+            except ValueError, ZeroDivisionError:
                 invertible = False
             assert has_partner == invertible

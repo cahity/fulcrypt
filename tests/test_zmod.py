@@ -17,6 +17,7 @@ Z11 = ZMod(11)
 # The factory
 # =============================================================================
 
+
 class TestFactory:
     def test_cached(self):
         # Same modulus -> same class, otherwise ZMod(7)(3) != ZMod(7)(3).
@@ -47,8 +48,11 @@ class TestFactory:
 # Elements: construction, equality, hashing
 # =============================================================================
 
+
 class TestElement:
-    @pytest.mark.parametrize("raw, reduced", [(3, 3), (10, 3), (7, 0), (-1, 6), (-15, 6), (10**20, 10**20 % 7)])
+    @pytest.mark.parametrize(
+        "raw, reduced", [(3, 3), (10, 3), (7, 0), (-1, 6), (-15, 6), (10**20, 10**20 % 7)]
+    )
     def test_reduces_on_construction(self, raw, reduced):
         assert Z7(raw).value == reduced
 
@@ -83,6 +87,7 @@ class TestElement:
 # Arithmetic
 # =============================================================================
 
+
 class TestArithmetic:
     def test_add(self):
         assert Z7(4) + Z7(5) == Z7(2)
@@ -99,33 +104,39 @@ class TestArithmetic:
 
     def test_results_keep_class(self):
         a, b = Z7(3), Z7(5)
-        for result in (a + b, a - b, a * b, -a, a / b, a ** 3):
+        for result in (a + b, a - b, a * b, -a, a / b, a**3):
             assert type(result) is Z7
 
-    @pytest.mark.parametrize("expr, expected", [
-        (lambda: Z7(4) + 5, 2),
-        (lambda: 5 + Z7(4), 2),
-        (lambda: Z7(4) - 5, 6),
-        (lambda: 5 - Z7(4), 1),     # needs __rsub__: 5 - 4, not 4 - 5
-        (lambda: Z7(4) * 2, 1),
-        (lambda: 2 * Z7(4), 1),
-        (lambda: Z7(6) / 2, 3),
-        (lambda: 1 / Z7(3), 5),     # needs __rtruediv__
-    ])
+    @pytest.mark.parametrize(
+        "expr, expected",
+        [
+            (lambda: Z7(4) + 5, 2),
+            (lambda: 5 + Z7(4), 2),
+            (lambda: Z7(4) - 5, 6),
+            (lambda: 5 - Z7(4), 1),  # needs __rsub__: 5 - 4, not 4 - 5
+            (lambda: Z7(4) * 2, 1),
+            (lambda: 2 * Z7(4), 1),
+            (lambda: Z7(6) / 2, 3),
+            (lambda: 1 / Z7(3), 5),  # needs __rtruediv__
+        ],
+    )
     def test_int_coercion(self, expr, expected):
         result = expr()
         assert type(result) is Z7
         assert result == Z7(expected)
 
-    @pytest.mark.parametrize("op", [
-        lambda: Z7(1) + Z11(1),
-        lambda: Z7(1) - Z11(1),
-        lambda: Z7(1) * Z11(1),
-        lambda: Z7(1) / Z11(1),
-        lambda: Z7(1) + GF2Poly(1),
-        lambda: Z7(1) * 1.5,
-        lambda: Z7(3) ** Z7(2),     # exponents are ints, not elements of Z7
-    ])
+    @pytest.mark.parametrize(
+        "op",
+        [
+            lambda: Z7(1) + Z11(1),
+            lambda: Z7(1) - Z11(1),
+            lambda: Z7(1) * Z11(1),
+            lambda: Z7(1) / Z11(1),
+            lambda: Z7(1) + GF2Poly(1),
+            lambda: Z7(1) * 1.5,
+            lambda: Z7(3) ** Z7(2),  # exponents are ints, not elements of Z7
+        ],
+    )
     def test_mixing_raises_type_error(self, op):
         with pytest.raises(TypeError):
             op()
@@ -134,6 +145,7 @@ class TestArithmetic:
 # =============================================================================
 # Inverses and division
 # =============================================================================
+
 
 class TestInverse:
     def test_known(self):
@@ -163,7 +175,7 @@ class TestInverse:
             try:
                 a.inverse()
                 units += 1
-            except (ValueError, ZeroDivisionError):
+            except ValueError, ZeroDivisionError:
                 pass
         assert units == sum(math.gcd(k, n) == 1 for k in range(1, n))
 
@@ -177,8 +189,11 @@ class TestInverse:
 # Powers
 # =============================================================================
 
+
 class TestPower:
-    @pytest.mark.parametrize("a, e, expected", [(3, 0, 1), (3, 1, 3), (3, 2, 2), (3, 6, 1), (0, 0, 1), (0, 5, 0)])
+    @pytest.mark.parametrize(
+        "a, e, expected", [(3, 0, 1), (3, 1, 3), (3, 2, 2), (3, 6, 1), (0, 0, 1), (0, 5, 0)]
+    )
     def test_known(self, a, e, expected):
         assert Z7(a) ** e == Z7(expected)
 
@@ -222,6 +237,7 @@ class TestPower:
 # =============================================================================
 # Ring laws on random inputs
 # =============================================================================
+
 
 class TestRingLaws:
     @pytest.mark.parametrize("n", [97, 100, 2**61 - 1])

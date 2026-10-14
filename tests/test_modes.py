@@ -1,6 +1,7 @@
 """Tests for modes.py: padding, ECB and CBC. Built step by step; see PLANNING.md.
 
-Design: modes work on plain bytes; mode functions take block-aligned data, padding is a separate layer.
+Design: modes work on plain bytes; mode functions take block-aligned data,
+and padding is a separate layer.
 """
 
 import os
@@ -18,6 +19,7 @@ def random_bytes(rng, n):
 # =============================================================================
 # Step 0 / 1: constants and byte helpers
 # =============================================================================
+
 
 def test_block_size():
     assert modes.BLOCK_SIZE == 16
@@ -69,7 +71,11 @@ class TestSplitBlocks:
 
     def test_several_blocks_in_order(self):
         data = bytes(range(48))
-        assert modes.split_blocks(data) == [bytes(range(0, 16)), bytes(range(16, 32)), bytes(range(32, 48))]
+        assert modes.split_blocks(data) == [
+            bytes(range(0, 16)),
+            bytes(range(16, 32)),
+            bytes(range(32, 48)),
+        ]
 
     def test_blocks_are_bytes_of_block_size(self):
         blocks = modes.split_blocks(bytes(64))
@@ -104,23 +110,33 @@ class TestSplitBlocks:
 # Step 2: PKCS#7 padding  (RFC 5652 section 6.3)
 # =============================================================================
 
+
 class TestPad:
-    @pytest.mark.parametrize("data, padded", [
-        (b"", b"\x10" * 16),                                   # empty -> one full block of padding
-        (b"abc", b"abc" + b"\x0d" * 13),
-        (b"A" * 15, b"A" * 15 + b"\x01"),
-        (b"YELLOW SUBMARINE", b"YELLOW SUBMARINE" + b"\x10" * 16),  # aligned -> full extra block
-        (b"B" * 17, b"B" * 17 + b"\x0f" * 15),
-    ])
+    @pytest.mark.parametrize(
+        "data, padded",
+        [
+            (b"", b"\x10" * 16),  # empty -> one full block of padding
+            (b"abc", b"abc" + b"\x0d" * 13),
+            (b"A" * 15, b"A" * 15 + b"\x01"),
+            (
+                b"YELLOW SUBMARINE",
+                b"YELLOW SUBMARINE" + b"\x10" * 16,
+            ),  # aligned -> full extra block
+            (b"B" * 17, b"B" * 17 + b"\x0f" * 15),
+        ],
+    )
     def test_known(self, data, padded):
         assert modes.pad(data) == padded
 
-    @pytest.mark.parametrize("data, block_size, padded", [
-        (b"abc", 8, b"abc" + b"\x05" * 5),
-        (b"YELLOW SUBMARINE", 20, b"YELLOW SUBMARINE" + b"\x04" * 4),
-        (b"", 4, b"\x04" * 4),
-        (b"xyz", 1, b"xyz\x01"),
-    ])
+    @pytest.mark.parametrize(
+        "data, block_size, padded",
+        [
+            (b"abc", 8, b"abc" + b"\x05" * 5),
+            (b"YELLOW SUBMARINE", 20, b"YELLOW SUBMARINE" + b"\x04" * 4),
+            (b"", 4, b"\x04" * 4),
+            (b"xyz", 1, b"xyz\x01"),
+        ],
+    )
     def test_custom_block_size(self, data, block_size, padded):
         assert modes.pad(data, block_size) == padded
 
@@ -145,12 +161,15 @@ class TestPad:
 
 
 class TestUnpad:
-    @pytest.mark.parametrize("padded, data", [
-        (b"\x10" * 16, b""),
-        (b"abc" + b"\x0d" * 13, b"abc"),
-        (b"A" * 15 + b"\x01", b"A" * 15),
-        (b"YELLOW SUBMARINE" + b"\x10" * 16, b"YELLOW SUBMARINE"),
-    ])
+    @pytest.mark.parametrize(
+        "padded, data",
+        [
+            (b"\x10" * 16, b""),
+            (b"abc" + b"\x0d" * 13, b"abc"),
+            (b"A" * 15 + b"\x01", b"A" * 15),
+            (b"YELLOW SUBMARINE" + b"\x10" * 16, b"YELLOW SUBMARINE"),
+        ],
+    )
     def test_known(self, padded, data):
         assert modes.unpad(padded) == data
 
@@ -161,7 +180,8 @@ class TestUnpad:
         assert modes.unpad(modes.pad(data, block_size), block_size) == data
 
     def test_data_that_looks_like_padding(self):
-        # Messages ending in bytes like \x01 or \x02\x02 must survive: pad always adds at least one byte.
+        # Messages ending in bytes like \x01 or \x02\x02 must survive:
+        # pad always adds at least one byte.
         for data in (b"\x01", b"hello\x01", b"hello\x02\x02", b"\x10" * 16):
             assert modes.unpad(modes.pad(data)) == data
 
@@ -169,18 +189,21 @@ class TestUnpad:
         assert type(modes.unpad(b"abc" + b"\x0d" * 13)) is bytes
         assert type(modes.unpad(bytearray(b"abc" + b"\x0d" * 13))) is bytes
 
-    @pytest.mark.parametrize("bad", [
-        b"",                                  # nothing to unpad
-        b"A" * 15,                            # not a multiple of the block size
-        b"A" * 17,
-        b"A" * 15 + b"\x00",                  # n = 0 is never valid
-        b"A" * 15 + b"\x11",                  # n = 17 > block size
-        b"A" * 31 + b"\xff",                  # n = 255
-        b"A" * 14 + b"\x01\x02",              # n = 2, but the byte before is 0x01
-        b"A" * 13 + b"\x02\x03\x03",          # n = 3, first padding byte wrong
-        b"\x10" * 15 + b"\x0f",               # n = 15, but all 15 must be 0x0f
-        b"\x0f" + b"\x10" * 15,               # n = 16, but one byte is 0x0f
-    ])
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            b"",  # nothing to unpad
+            b"A" * 15,  # not a multiple of the block size
+            b"A" * 17,
+            b"A" * 15 + b"\x00",  # n = 0 is never valid
+            b"A" * 15 + b"\x11",  # n = 17 > block size
+            b"A" * 31 + b"\xff",  # n = 255
+            b"A" * 14 + b"\x01\x02",  # n = 2, but the byte before is 0x01
+            b"A" * 13 + b"\x02\x03\x03",  # n = 3, first padding byte wrong
+            b"\x10" * 15 + b"\x0f",  # n = 15, but all 15 must be 0x0f
+            b"\x0f" + b"\x10" * 15,  # n = 16, but one byte is 0x0f
+        ],
+    )
     def test_rejects_invalid_padding(self, bad):
         with pytest.raises(ValueError):
             modes.unpad(bad)
@@ -245,6 +268,7 @@ class TestECB:
 
     def test_single_block_is_plain_aes(self):
         import aes
+
         block = SP800_PLAINTEXT[:16]
         assert modes.ecb_encrypt(block, KEY_128) == aes.encrypt_block(block, KEY_128)
 
@@ -278,7 +302,8 @@ class TestECB:
         assert ct[32:48] == alone
 
     def test_swapping_ciphertext_blocks_swaps_plaintext(self):
-        # ECB weakness: an attacker can reorder blocks without the key, and decryption still "works".
+        # ECB weakness: an attacker can reorder blocks without the key,
+        # and decryption still "works".
         ct = modes.ecb_encrypt(SP800_PLAINTEXT, KEY_128)
         swapped = ct[16:32] + ct[0:16] + ct[32:]
         pt = modes.ecb_decrypt(swapped, KEY_128)
@@ -289,7 +314,9 @@ class TestECB:
         for length in range(0, 50, 7):
             msg = random_bytes(rng, length)
             key = random_bytes(rng, 16)
-            assert modes.unpad(modes.ecb_decrypt(modes.ecb_encrypt(modes.pad(msg), key), key)) == msg
+            assert (
+                modes.unpad(modes.ecb_decrypt(modes.ecb_encrypt(modes.pad(msg), key), key)) == msg
+            )
 
 
 # =============================================================================
@@ -300,24 +327,27 @@ A, B, C = b"A" * 16, b"B" * 16, b"C" * 16
 
 
 class TestRepeatedBlocks:
-    @pytest.mark.parametrize("blocks, count", [
-        ([], 0),
-        ([A], 0),
-        ([A, B], 0),
-        ([A, A], 1),
-        ([A, B, A, A], 2),       # the example from the plan
-        ([A, A, A, A], 3),
-        ([A, B, C, A, B, C], 3),
-        ([A, B, B, C, C, C], 3),
-        ([A] * 10, 9),
-    ])
+    @pytest.mark.parametrize(
+        "blocks, count",
+        [
+            ([], 0),
+            ([A], 0),
+            ([A, B], 0),
+            ([A, A], 1),
+            ([A, B, A, A], 2),  # the example from the plan
+            ([A, A, A, A], 3),
+            ([A, B, C, A, B, C], 3),
+            ([A, B, B, C, C, C], 3),
+            ([A] * 10, 9),
+        ],
+    )
     def test_known(self, blocks, count):
         assert modes.repeated_blocks(b"".join(blocks)) == count
 
     def test_custom_block_size(self):
-        assert modes.repeated_blocks(b"abcdabcdxyzw", 4) == 1    # abcd abcd xyzw
-        assert modes.repeated_blocks(b"abcdabcdxyzw", 2) == 2    # ab cd ab cd xy zw
-        assert modes.repeated_blocks(b"abcdabcdxyzw", 3) == 0    # abc dab cdx yzw
+        assert modes.repeated_blocks(b"abcdabcdxyzw", 4) == 1  # abcd abcd xyzw
+        assert modes.repeated_blocks(b"abcdabcdxyzw", 2) == 2  # ab cd ab cd xy zw
+        assert modes.repeated_blocks(b"abcdabcdxyzw", 3) == 0  # abc dab cdx yzw
         assert modes.repeated_blocks(b"aaaaaa", 2) == 2
 
     def test_partial_overlap_is_not_a_repeat(self):
@@ -360,7 +390,7 @@ class TestECBLeaksPatterns:
         # An attacker sees ciphertexts from an unknown key and spots the ECB one by its repeats.
         rng = random.Random(6)
         key = random_bytes(rng, 16)
-        structured = A * 8 + random_bytes(rng, 64)          # e.g. a file with a run of identical blocks
+        structured = A * 8 + random_bytes(rng, 64)  # e.g. a file with a run of identical blocks
         ecb_ct = modes.ecb_encrypt(structured, key)
         others = [random_bytes(rng, len(ecb_ct)) for _ in range(20)]
         candidates = others[:7] + [ecb_ct] + others[7:]
@@ -372,7 +402,7 @@ class TestECBLeaksPatterns:
 # Step 5: CBC  (NIST SP 800-38A section 6.2, Appendix F.2)
 # =============================================================================
 
-SP800_IV = bytes(range(16))   # 000102...0f
+SP800_IV = bytes(range(16))  # 000102...0f
 
 
 class TestCBC:
@@ -406,6 +436,7 @@ class TestCBC:
     def test_first_block(self):
         # C_0 = AES(K, P_0 xor IV)
         import aes
+
         expected = aes.encrypt_block(modes.xor_bytes(SP800_PLAINTEXT[:16], SP800_IV), KEY_128)
         assert modes.cbc_encrypt(SP800_PLAINTEXT[:16], KEY_128, SP800_IV) == expected
 
@@ -440,7 +471,8 @@ class TestCBC:
             modes.cbc_encrypt(bytes(16), bytes(20), SP800_IV)
 
     def test_repeated_blocks_no_longer_repeat(self):
-        # The ECB leak from Step 4 is gone: chaining makes equal plaintext blocks encrypt differently.
+        # The ECB leak from Step 4 is gone:
+        # chaining makes equal plaintext blocks encrypt differently.
         plaintext = b"A" * 16 * 8
         assert modes.repeated_blocks(modes.ecb_encrypt(plaintext, KEY_128)) == 7
         assert modes.repeated_blocks(modes.cbc_encrypt(plaintext, KEY_128, SP800_IV)) == 0
@@ -448,12 +480,13 @@ class TestCBC:
     def test_iv_changes_every_block(self):
         a = modes.split_blocks(modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, SP800_IV))
         b = modes.split_blocks(modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, bytes(16)))
-        assert all(x != y for x, y in zip(a, b))
+        assert all(x != y for x, y in zip(a, b, strict=True))
 
     def test_same_iv_same_ciphertext(self):
         # Deterministic for a fixed IV -- which is exactly why IVs must not be reused (Step 6).
-        assert modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, SP800_IV) == \
-            modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, SP800_IV)
+        assert modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, SP800_IV) == modes.cbc_encrypt(
+            SP800_PLAINTEXT, KEY_128, SP800_IV
+        )
 
     def test_prefix(self):
         # Block i depends only on blocks 0..i, so encrypting a prefix gives a prefix.
@@ -486,6 +519,7 @@ class TestCBC:
 # The first three classes check your answers to the plan's questions 1-3 as properties of CBC.
 # Try answering the questions before reading these tests: they contain the answers.
 
+
 def flip_bit(data, bit):
     """Return data with one bit flipped (bit 0 = most significant bit of byte 0)."""
     out = bytearray(data)
@@ -494,7 +528,7 @@ def flip_bit(data, bit):
 
 
 def bit_diff(a, b):
-    return sum(bin(x ^ y).count("1") for x, y in zip(a, b))
+    return sum(bin(x ^ y).count("1") for x, y in zip(a, b, strict=True))
 
 
 class TestIVReuse:
@@ -503,7 +537,9 @@ class TestIVReuse:
     def test_equal_messages_give_equal_ciphertexts(self):
         # The attacker learns that two messages are identical.
         msg = SP800_PLAINTEXT
-        assert modes.cbc_encrypt(msg, KEY_128, SP800_IV) == modes.cbc_encrypt(msg, KEY_128, SP800_IV)
+        assert modes.cbc_encrypt(msg, KEY_128, SP800_IV) == modes.cbc_encrypt(
+            msg, KEY_128, SP800_IV
+        )
 
     def test_common_prefix_is_visible(self):
         # Messages that agree on their first k blocks give ciphertexts that agree on k blocks,
@@ -518,7 +554,9 @@ class TestIVReuse:
     def test_fresh_iv_hides_the_prefix(self):
         a = modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, SP800_IV)
         b = modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, bytes(16))
-        assert all(x != y for x, y in zip(modes.split_blocks(a), modes.split_blocks(b)))
+        assert all(
+            x != y for x, y in zip(modes.split_blocks(a), modes.split_blocks(b), strict=True)
+        )
 
 
 class TestErrorPropagation:
@@ -555,7 +593,7 @@ class TestBitFlipping:
 
     def test_attacker_sets_chosen_plaintext(self):
         key, iv = KEY_128, SP800_IV
-        known = b"user=alice;role=" + b"guest;padding..."      # attacker knows block 1 is "guest;..."
+        known = b"user=alice;role=" + b"guest;padding..."  # attacker knows block 1 is "guest;..."
         target = b"admin;padding..."
         target += b"." * (16 - len(target))
         ct = modes.cbc_encrypt(known, key, iv)
@@ -563,14 +601,14 @@ class TestBitFlipping:
         # C_0' = C_0 xor P_1 xor P_1'  makes block 1 decrypt to P_1'.
         forged = modes.xor_bytes(ct[:16], modes.xor_bytes(known[16:32], target)) + ct[16:]
         pt = modes.cbc_decrypt(forged, key, iv)
-        assert pt[16:] == target          # chosen change, exactly
-        assert pt[:16] != known[:16]      # the price: block 0 is garbage
+        assert pt[16:] == target  # chosen change, exactly
+        assert pt[:16] != known[:16]  # the price: block 0 is garbage
 
     def test_forged_iv_changes_first_block_cleanly(self):
         # With the IV sent alongside the ciphertext (Step 6 functions), the attacker can edit
         # block 0 too, and nothing else gets garbled.
         key = KEY_128
-        msg = b"amount=00000100;"     # exactly one block
+        msg = b"amount=00000100;"  # exactly one block
         data = modes.encrypt_message(msg, key)
         iv, ct = data[:16], data[16:]
         forged_iv = modes.xor_bytes(iv, modes.xor_bytes(msg, b"amount=99999999;"))
@@ -603,7 +641,7 @@ class TestMessageAPI:
         msg = b"attack at dawn"
         outs = {modes.encrypt_message(msg, KEY_128) for _ in range(20)}
         assert len(outs) == 20
-        assert len({o[:16] for o in outs}) == 20     # every IV is fresh
+        assert len({o[:16] for o in outs}) == 20  # every IV is fresh
 
     def test_iv_comes_from_os_urandom(self, monkeypatch):
         calls = []
@@ -613,7 +651,7 @@ class TestMessageAPI:
             return bytes(range(0xA0, 0xA0 + n))
 
         monkeypatch.setattr(os, "urandom", fake_urandom)
-        if hasattr(modes, "urandom"):                 # also covers `from os import urandom`
+        if hasattr(modes, "urandom"):  # also covers `from os import urandom`
             monkeypatch.setattr(modes, "urandom", fake_urandom)
         data = modes.encrypt_message(b"hello", KEY_128)
         assert calls == [16]
@@ -631,7 +669,8 @@ class TestMessageAPI:
 
     def test_decrypt_rejects_tampered_padding(self):
         data = modes.encrypt_message(b"hello", KEY_128)
-        # Flipping the last byte of the second-to-last block (here: the IV) changes the padding byte.
+        # Flipping the last byte of the second-to-last block (here: the IV)
+        # changes the padding byte.
         bad = flip_bit(data, 8 * 15 + 7)
         with pytest.raises(ValueError):
             modes.decrypt_message(bad, KEY_128)
@@ -641,5 +680,5 @@ class TestMessageAPI:
         try:
             out = modes.decrypt_message(data, bytes(16))
         except ValueError:
-            return                                    # most likely: invalid padding
+            return  # most likely: invalid padding
         assert out != b"secret message"

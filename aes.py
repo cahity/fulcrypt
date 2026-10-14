@@ -5,17 +5,18 @@ Design decisions:
   transformations read like the spec: XOR is +, the spec's "•" is *.
 - The state is a 4x4 list indexed state[r][c], as in the spec. Input bytes fill it
   column by column: in[r + 4c] -> state[r][c]. Each column is one 32-bit word (section 3.4).
-- Every transformation returns a new state and leaves its input unchanged (easier to debug and test).
+- Every transformation returns a new state and leaves its input unchanged
+  (easier to debug and test).
 """
 
 from elements import GF2n
-
 
 Nb = 4  # Words per block
 AES = GF2n(0x11B)
 
 
 def bytes_to_state(block):
+    """Convert a 16-byte block to a state, filling column by column."""
     if len(block) != 16:
         raise ValueError("Block must be 16 bytes long")
 
@@ -25,12 +26,15 @@ def bytes_to_state(block):
             state[r][c] = AES(block[r + (4 * c)])
     return state
 
+
 def state_to_bytes(state):
+    """Convert a state back to 16 bytes, reading column by column."""
     block = bytearray(16)
     for c in range(4):
         for r in range(4):
             block[r + (4 * c)] = state[r][c].bits
     return bytes(block)
+
 
 def compute_subbytes():
     """Compute the AES S-box and its inverse."""
@@ -58,102 +62,129 @@ def compute_subbytes():
 
     return sbox, inv_sbox
 
+
 sbox, inv_sbox = compute_subbytes()
 
+
 def sub_bytes(state):
+    """Apply the S-box to every byte of the state."""
     return [[AES(sbox[byte.bits]) for byte in row] for row in state]
 
+
 def inv_sub_bytes(state):
+    """Apply the inverse S-box to every byte of the state."""
     return [[AES(inv_sbox[byte.bits]) for byte in row] for row in state]
 
+
 def shift_rows(state):
+    """Rotate row r of the state left by r positions."""
     new_state = [[0] * 4 for _ in range(4)]
     for r in range(4):
         for c in range(4):
             new_state[r][c] = state[r][(c + r) % 4]
     return new_state
 
+
 def inv_shift_rows(state):
+    """Rotate row r of the state right by r positions."""
     new_state = [[0] * 4 for _ in range(4)]
     for r in range(4):
         for c in range(4):
             new_state[r][c] = state[r][(c - r) % 4]
     return new_state
 
+
 def mix_columns(state):
+    """Multiply each column by the MixColumns matrix over GF(2^8)."""
     new_state = [[0] * 4 for _ in range(4)]
     for c in range(4):
         for i in range(4):
             new_state[i][c] = (
                 (AES(2) * state[i][c])
-                + (AES(3) * state[(i+1) % 4][c])
-                + state[(i+2) % 4][c]
+                + (AES(3) * state[(i + 1) % 4][c])
+                + state[(i + 2) % 4][c]
                 + state[(i + 3) % 4][c]
             )
-        
+
     return new_state
 
+
 def inv_mix_columns(state):
+    """Multiply each column by the inverse MixColumns matrix over GF(2^8)."""
     new_state = [[0] * 4 for _ in range(4)]
     for c in range(4):
         for i in range(4):
             new_state[i][c] = (
-                (AES(0x0e) * state[i][c])
-                + (AES(0x0b) * state[(i+1) % 4][c])
-                + (AES(0x0d) * state[(i+2) % 4][c])
+                (AES(0x0E) * state[i][c])
+                + (AES(0x0B) * state[(i + 1) % 4][c])
+                + (AES(0x0D) * state[(i + 2) % 4][c])
                 + (AES(0x09) * state[(i + 3) % 4][c])
             )
 
     return new_state
 
+
 def add_round_key(state, round_key):
+    """Add round key word c to column c of the state."""
     new_state = [[0] * 4 for _ in range(4)]
     for i, w in enumerate(round_key):
         for j in range(4):
             new_state[j][i] = state[j][i] + w[j]
     return new_state
 
+
 def rot_word(word):
+    """Rotate a word left by one byte."""
     return [word[(i + 1) % 4] for i in range(4)]
 
+
 def sub_word(word):
+    """Apply the S-box to every byte of a word."""
     return [AES(sbox[w.bits]) for w in word]
 
+
 def rcon(i: int):
+    """Return the round constant word [x^(i-1), 0, 0, 0] for i >= 1."""
     if i < 1:
         raise ValueError(f"Rcon index must be at least 1, got {i} (Rcon[i]=x^(i-1) starts at i=1)")
-    return [AES(0x02) ** (i-1), AES(0), AES(0), AES(0)]
+    return [AES(0x02) ** (i - 1), AES(0), AES(0), AES(0)]
+
 
 def key_expansion(key: bytes):
+    """Expand a 16, 24 or 32-byte key into Nb * (Nr + 1) round key words."""
     if len(key) not in [16, 24, 32]:
         raise ValueError(
             f"Only 16, 24, and 32 byte keys are accepted in AES. Provided key is {len(key)} bytes."
         )
 
-    Nk = len(key) // 4
-    Nr = 6 + Nk
+    nk = len(key) // 4
+    nr = 6 + nk
 
     words = []
-    for i in range(Nk):
-        words.append([
-            AES(key[4*i+0]),
-            AES(key[4*i+1]),
-            AES(key[4*i+2]),
-            AES(key[4*i+3]),
-        ])
+    for i in range(nk):
+        words.append(
+            [
+                AES(key[4 * i + 0]),
+                AES(key[4 * i + 1]),
+                AES(key[4 * i + 2]),
+                AES(key[4 * i + 3]),
+            ]
+        )
 
-    for i in range(Nk, Nb*(Nr+1)):
+    for i in range(nk, Nb * (nr + 1)):
         tmp = words[-1]
-        if i % Nk == 0:
-            tmp = [w1 + w2 for w1, w2 in zip(sub_word(rot_word(tmp)), rcon(i//Nk))]
-        elif Nk > 6 and i % Nk == 4:
+        if i % nk == 0:
+            tmp = [w1 + w2 for w1, w2 in zip(sub_word(rot_word(tmp)), rcon(i // nk), strict=True)]
+        elif nk > 6 and i % nk == 4:
             tmp = sub_word(tmp)
 
-        words.append([w1 + w2 for w1, w2 in zip(words[i-Nk], tmp)])
+        words.append([w1 + w2 for w1, w2 in zip(words[i - nk], tmp, strict=True)])
 
     return words
 
+
 def encrypt_block(block: bytes, key: bytes):
+    """Encrypt one 16-byte block with AES."""
     if len(block) != Nb * 4:
         raise ValueError(
             f"Block size to encrypt should be {Nb * 4} bytes but it is {len(block)} bytes"
@@ -163,18 +194,18 @@ def encrypt_block(block: bytes, key: bytes):
             f"Only 16, 24, and 32 byte keys are accepted in AES. Provided key is {len(key)} bytes."
         )
 
-    Nk = len(key) // 4
-    Nr = 6 + Nk
+    nk = len(key) // 4
+    nr = 6 + nk
     keywords = key_expansion(key)
     state = bytes_to_state(block)
 
     state = add_round_key(state, keywords[:4])
 
-    for r in range(Nr-1):
+    for r in range(nr - 1):
         state = sub_bytes(state)
         state = shift_rows(state)
         state = mix_columns(state)
-        state = add_round_key(state, keywords[(r+1)*4:(r+2)*4])
+        state = add_round_key(state, keywords[(r + 1) * 4 : (r + 2) * 4])
 
     state = sub_bytes(state)
     state = shift_rows(state)
@@ -184,7 +215,9 @@ def encrypt_block(block: bytes, key: bytes):
     enc_block = state_to_bytes(state)
     return enc_block
 
+
 def decrypt_block(block: bytes, key: bytes):
+    """Decrypt one 16-byte block with AES."""
     if len(block) != Nb * 4:
         raise ValueError(
             f"Block size to decrypt should be {Nb * 4} bytes but it is {len(block)} bytes"
@@ -194,17 +227,17 @@ def decrypt_block(block: bytes, key: bytes):
             f"Only 16, 24, and 32 byte keys are accepted in AES. Provided key is {len(key)} bytes."
         )
 
-    Nk = len(key) // 4
-    Nr = 6 + Nk
+    nk = len(key) // 4
+    nr = 6 + nk
     keywords = key_expansion(key)
     state = bytes_to_state(block)
 
     state = add_round_key(state, keywords[-4:])
 
-    for r in range(Nr-2, -1, -1):
+    for r in range(nr - 2, -1, -1):
         state = inv_shift_rows(state)
         state = inv_sub_bytes(state)
-        state = add_round_key(state, keywords[(r+1)*4:(r+2)*4])
+        state = add_round_key(state, keywords[(r + 1) * 4 : (r + 2) * 4])
         state = inv_mix_columns(state)
 
     state = inv_shift_rows(state)

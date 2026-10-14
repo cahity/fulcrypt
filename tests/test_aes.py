@@ -27,6 +27,7 @@ def random_block(rng):
 # Step 1: bytes <-> state
 # =============================================================================
 
+
 class TestBytesToState:
     def test_shape(self):
         state = bytes_to_state(FIPS_INPUT)
@@ -99,6 +100,7 @@ class TestStateToBytes:
 # Step 2: SubBytes  (FIPS-197 section 5.1.1, 5.3.2)
 # =============================================================================
 
+
 def state_from_hex(h):
     return bytes_to_state(bytes.fromhex(h))
 
@@ -122,14 +124,17 @@ class TestSboxTables:
     def test_inverse_first_row(self):
         assert bytes(aes.inv_sbox[:16]).hex() == "52096ad53036a538bf40a39e81f3d7fb"
 
-    @pytest.mark.parametrize("x, y", [
-        (0x00, 0x63),     # 0 has no inverse; only the affine step acts
-        (0x01, 0x7C),
-        (0x53, 0xED),     # FIPS-197 example in section 5.1.1
-        (0x10, 0xCA),
-        (0xC9, 0xDD),
-        (0xFF, 0x16),
-    ])
+    @pytest.mark.parametrize(
+        "x, y",
+        [
+            (0x00, 0x63),  # 0 has no inverse; only the affine step acts
+            (0x01, 0x7C),
+            (0x53, 0xED),  # FIPS-197 example in section 5.1.1
+            (0x10, 0xCA),
+            (0xC9, 0xDD),
+            (0xFF, 0x16),
+        ],
+    )
     def test_known(self, x, y):
         assert aes.sbox[x] == y
         assert aes.inv_sbox[y] == x
@@ -153,7 +158,8 @@ class TestSboxTables:
         # The field inverse makes the S-box nonlinear: S(a ^ b) != S(a) ^ S(b) ^ S(0) in general.
         assert any(
             aes.sbox[a ^ b] != aes.sbox[a] ^ aes.sbox[b] ^ aes.sbox[0]
-            for a in range(1, 16) for b in range(1, 16)
+            for a in range(1, 16)
+            for b in range(1, 16)
         )
 
 
@@ -186,7 +192,9 @@ class TestSubBytes:
     def test_bytewise(self):
         # Each byte is substituted on its own: position doesn't matter.
         block = bytes(range(16))
-        assert state_to_bytes(aes.sub_bytes(bytes_to_state(block))) == bytes(aes.sbox[b] for b in block)
+        assert state_to_bytes(aes.sub_bytes(bytes_to_state(block))) == bytes(
+            aes.sbox[b] for b in block
+        )
 
     def test_round_trip_random(self):
         rng = random.Random(2)
@@ -199,6 +207,7 @@ class TestSubBytes:
 # =============================================================================
 # Step 3: ShiftRows  (FIPS-197 section 5.1.2, 5.3.1)
 # =============================================================================
+
 
 def labelled_state():
     # Entry [r][c] holds the byte 0xRC, so positions are easy to read in failures.
@@ -284,6 +293,7 @@ class TestShiftRows:
 # Step 4: MixColumns  (FIPS-197 section 5.1.3, 5.3.3)
 # =============================================================================
 
+
 def state_with_column(c, column_hex, fill=0):
     """A state whose column c is the given 4 bytes; all other entries are `fill`."""
     s = [[AES(fill) for _ in range(4)] for _ in range(4)]
@@ -307,14 +317,17 @@ class TestMixColumns:
     def test_inverse_appendix_b_round1(self):
         assert hex_of(aes.inv_mix_columns(state_from_hex(self.ROUND1_AFTER))) == self.ROUND1_BEFORE
 
-    @pytest.mark.parametrize("before, after", [
-        ("db135345", "8e4da1bc"),
-        ("f20a225c", "9fdc589d"),
-        ("01010101", "01010101"),
-        ("c6c6c6c6", "c6c6c6c6"),   # equal bytes: 2 + 3 + 1 + 1 = 1 in GF(2^8)
-        ("d4d4d4d5", "d5d5d7d6"),
-        ("2d26314c", "4d7ebdf8"),
-    ])
+    @pytest.mark.parametrize(
+        "before, after",
+        [
+            ("db135345", "8e4da1bc"),
+            ("f20a225c", "9fdc589d"),
+            ("01010101", "01010101"),
+            ("c6c6c6c6", "c6c6c6c6"),  # equal bytes: 2 + 3 + 1 + 1 = 1 in GF(2^8)
+            ("d4d4d4d5", "d5d5d7d6"),
+            ("2d26314c", "4d7ebdf8"),
+        ],
+    )
     @pytest.mark.parametrize("c", range(4))
     def test_single_column(self, before, after, c):
         # Same column vector in every position c gives the same result there.
@@ -354,7 +367,9 @@ class TestMixColumns:
             b = bytes_to_state(random_block(rng))
             a_plus_b = [[a[r][c] + b[r][c] for c in range(4)] for r in range(4)]
             ma, mb = aes.mix_columns(a), aes.mix_columns(b)
-            assert aes.mix_columns(a_plus_b) == [[ma[r][c] + mb[r][c] for c in range(4)] for r in range(4)]
+            assert aes.mix_columns(a_plus_b) == [
+                [ma[r][c] + mb[r][c] for c in range(4)] for r in range(4)
+            ]
 
     def test_four_times_is_identity(self):
         # The AES matrix M satisfies M^4 = I, so the inverse is M^3.
@@ -391,6 +406,7 @@ class TestMixColumns:
 # Step 5: AddRoundKey  (FIPS-197 section 5.1.4)
 # =============================================================================
 
+
 def words_from_hex(h):
     """16 bytes -> 4 words of 4 field elements (word c = bytes 4c .. 4c+3)."""
     b = bytes.fromhex(h)
@@ -400,7 +416,7 @@ def words_from_hex(h):
 class TestAddRoundKey:
     # FIPS-197 Appendix B
     INPUT = "3243f6a8885a308d313198a2e0370734"
-    KEY = "2b7e151628aed2a6abf7158809cf4f3c"          # round key 0 = the cipher key
+    KEY = "2b7e151628aed2a6abf7158809cf4f3c"  # round key 0 = the cipher key
     ROUND1_START = "193de3bea0f4e22b9ac68d2ae9f84808"
     ROUND1_MIXED = "046681e5e0cb199a48f8d37a2806264c"  # after MixColumns in round 1
     ROUND_KEY_1 = "a0fafe1788542cb123a339392a6c7605"
@@ -450,7 +466,7 @@ class TestAddRoundKey:
         for _ in range(50):
             block, key = random_block(rng), random_block(rng)
             out = aes.add_round_key(bytes_to_state(block), words_from_hex(key.hex()))
-            assert state_to_bytes(out) == bytes(a ^ b for a, b in zip(block, key))
+            assert state_to_bytes(out) == bytes(a ^ b for a, b in zip(block, key, strict=True))
 
     def test_entries_stay_field_elements(self):
         out = aes.add_round_key(state_from_hex(self.INPUT), words_from_hex(self.KEY))
@@ -471,6 +487,7 @@ class TestAddRoundKey:
 # =============================================================================
 # Step 6: Key expansion  (FIPS-197 section 5.2, Appendix A.1)
 # =============================================================================
+
 
 def word(h):
     return [AES(b) for b in bytes.fromhex(h)]
@@ -525,12 +542,21 @@ class TestSubWord:
 
 
 class TestRcon:
-    @pytest.mark.parametrize("i, first", [
-        (1, 0x01), (2, 0x02), (3, 0x04), (4, 0x08), (5, 0x10),
-        (6, 0x20), (7, 0x40), (8, 0x80),
-        (9, 0x1B),    # x^8 reduced mod x^8 + x^4 + x^3 + x + 1
-        (10, 0x36),
-    ])
+    @pytest.mark.parametrize(
+        "i, first",
+        [
+            (1, 0x01),
+            (2, 0x02),
+            (3, 0x04),
+            (4, 0x08),
+            (5, 0x10),
+            (6, 0x20),
+            (7, 0x40),
+            (8, 0x80),
+            (9, 0x1B),  # x^8 reduced mod x^8 + x^4 + x^3 + x + 1
+            (10, 0x36),
+        ],
+    )
     def test_known(self, i, first):
         assert aes.rcon(i) == [AES(first), AES(0), AES(0), AES(0)]
 
@@ -584,7 +610,7 @@ class TestKeyExpansion128:
     def test_round_key(self, k):
         # Round key k is words[4k : 4k + 4]. A failure names the first wrong round.
         words = self.expanded()
-        assert [word_hex(w) for w in words[4 * k: 4 * k + 4]] == self.EXPECTED[k].split()
+        assert [word_hex(w) for w in words[4 * k : 4 * k + 4]] == self.EXPECTED[k].split()
 
     def test_appendix_c1_last_round_key(self):
         words = aes.key_expansion(bytes(range(16)))
@@ -619,6 +645,7 @@ class TestKeyExpansion128:
 # =============================================================================
 # Step 7: Encryption  (FIPS-197 section 5.1, Algorithm 1; Appendix B, C.1)
 # =============================================================================
+
 
 class TestEncrypt128:
     B_INPUT = "3243f6a8885a308d313198a2e0370734"
@@ -676,7 +703,9 @@ class TestEncrypt128:
             aes.encrypt_block(bytes(length), bytes.fromhex(self.B_KEY))
 
     def test_deterministic(self):
-        assert self.encrypt_hex(self.B_INPUT, self.B_KEY) == self.encrypt_hex(self.B_INPUT, self.B_KEY)
+        assert self.encrypt_hex(self.B_INPUT, self.B_KEY) == self.encrypt_hex(
+            self.B_INPUT, self.B_KEY
+        )
 
     def test_output_differs_from_input(self):
         rng = random.Random(11)
@@ -702,7 +731,7 @@ class TestEncrypt128:
             a = aes.encrypt_block(bytes(block), key)
             block[bit // 8] ^= 1 << (bit % 8)
             b = aes.encrypt_block(bytes(block), key)
-            total += sum(bin(x ^ y).count("1") for x, y in zip(a, b))
+            total += sum(bin(x ^ y).count("1") for x, y in zip(a, b, strict=True))
         assert 54 < total / 100 < 74
 
     def test_avalanche_key(self):
@@ -715,13 +744,14 @@ class TestEncrypt128:
             a = aes.encrypt_block(block, bytes(key))
             key[bit // 8] ^= 1 << (bit % 8)
             b = aes.encrypt_block(block, bytes(key))
-            total += sum(bin(x ^ y).count("1") for x, y in zip(a, b))
+            total += sum(bin(x ^ y).count("1") for x, y in zip(a, b, strict=True))
         assert 54 < total / 100 < 74
 
 
 # =============================================================================
 # Step 8: Decryption  (FIPS-197 section 5.3, Algorithm 3; Appendix B, C.1)
 # =============================================================================
+
 
 class TestDecrypt128:
     B = TestEncrypt128
@@ -744,8 +774,9 @@ class TestDecrypt128:
 
     def test_add_round_key_before_inv_mix_columns(self):
         out = self.decrypt_hex(self.B.B_OUTPUT, self.B.B_KEY)
-        assert out != self.B_OUTPUT_IF_INV_MIX_BEFORE_ADD_KEY, \
+        assert out != self.B_OUTPUT_IF_INV_MIX_BEFORE_ADD_KEY, (
             "in Algorithm 3, AddRoundKey comes before InvMixColumns in each round"
+        )
 
     def test_appendix_b(self):
         assert self.decrypt_hex(self.B.B_OUTPUT, self.B.B_KEY) == self.B.B_INPUT
@@ -850,14 +881,19 @@ class TestEncryptDecrypt192And256:
         return aes.decrypt_block(bytes.fromhex(ct_hex), bytes.fromhex(key_hex)).hex()
 
     def test_192_round_count(self):
-        assert self.encrypt_hex(self.C2_KEY) != self.C2_OUTPUT_IF_10_ROUNDS, "AES-192 has Nr = 12 rounds"
+        assert self.encrypt_hex(self.C2_KEY) != self.C2_OUTPUT_IF_10_ROUNDS, (
+            "AES-192 has Nr = 12 rounds"
+        )
 
     def test_256_round_count(self):
-        assert self.encrypt_hex(self.C3_KEY) != self.C3_OUTPUT_IF_10_ROUNDS, "AES-256 has Nr = 14 rounds"
+        assert self.encrypt_hex(self.C3_KEY) != self.C3_OUTPUT_IF_10_ROUNDS, (
+            "AES-256 has Nr = 14 rounds"
+        )
 
     def test_256_extra_sub_word_in_cipher(self):
-        assert self.encrypt_hex(self.C3_KEY) != self.C3_OUTPUT_WITHOUT_EXTRA_SUB_WORD, \
+        assert self.encrypt_hex(self.C3_KEY) != self.C3_OUTPUT_WITHOUT_EXTRA_SUB_WORD, (
             "AES-256 key expansion needs SubWord when i mod Nk == 4"
+        )
 
     def test_encrypt_192(self):
         assert self.encrypt_hex(self.C2_KEY) == self.C2_OUTPUT

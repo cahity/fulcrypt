@@ -1,10 +1,12 @@
 """Generic algorithms. They use only operators, so they work on int and every element class."""
 
+from typing import Any
 
-def xgcd[T](a: T, b: T) -> tuple[T, T, T]:
+
+def xgcd(a: Any, b: Any) -> tuple[Any, Any, Any]:
     """Return (d, u, v) where d = gcd(a, b) = u*a + v*b, for nonnegative a and b."""
-    T = type(a)
-    zero, one = T(0), T(1)
+    cls = type(a)
+    zero, one = cls(0), cls(1)
 
     if isinstance(a, int) and (a < zero or b < zero):
         raise ValueError("xgcd expects nonnegative inputs")
@@ -23,7 +25,7 @@ def xgcd[T](a: T, b: T) -> tuple[T, T, T]:
     return old_r, old_s, old_t
 
 
-def inverse_mod[T](a: T, m: T) -> T:
+def inverse_mod(a: Any, m: Any) -> Any:
     """Return the multiplicative inverse of a modulo m, if it exists."""
     d, u, _ = xgcd(a, m)
     if d != type(a)(1):
@@ -31,7 +33,7 @@ def inverse_mod[T](a: T, m: T) -> T:
     return u % m
 
 
-def power(a, e):
+def power(a: Any, e: int) -> Any:
     """Exponentiation by squaring, for nonnegative integer e."""
     if not isinstance(e, int):
         return NotImplemented

@@ -10,7 +10,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "mypy>=2.4.0",
     "pytest-timeout>=2.4.0",
+    "ruff>=0.17.0",
 ]
 
 [tool.pytest.ini_options]
@@ -18,3 +20,39 @@ testpaths = ["tests"]
 pythonpath = ["."]
 timeout = 1
 timeout_method = "thread"
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle: PEP 8 errors and warnings
+    "F",        # pyflakes: unused imports, undefined names
+    "I",        # isort: import sorting
+    "D",        # pydocstyle: docstrings
+    "N",        # pep8-naming
+    "UP",       # pyupgrade: modern Python syntax
+    "B",        # flake8-bugbear: likely bugs
+]
+
+ignore = [
+    "D105",     # dunder methods: the operator says what they do
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.pep8-naming]
+# Math notation: class factories return classes (CamelCase), F/R are fields/rings, Zn is Z/nZ.
+ignore-names = ["ZMod", "GF2n", "F", "R", "Z*", "*_Z[0-9]*"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]          # test names describe themselves
+"main.py" = ["D"]
+
+[tool.mypy]
+python_version = "3.14"
+files = ["algebra.py", "algorithms.py", "elements.py", "aes.py", "modes.py", "example.py"]
+check_untyped_defs = true
+warn_unused_ignores = true

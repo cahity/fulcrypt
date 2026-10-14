@@ -13,6 +13,7 @@ def Zn_mul(n):
 
 # Group
 
+
 def test_group_identity():
     assert Zn_add(5).identity() == 0
 
@@ -55,6 +56,7 @@ def test_group_check_false_skips_validation():
 
 # Ring
 
+
 def test_ring_zero_and_one():
     r = Ring(Zn_add(6), Zn_mul(6))
     assert r.zero == 0
@@ -83,6 +85,7 @@ def test_ring_check_false_skips_validation():
 
 
 # Field
+
 
 @pytest.mark.parametrize("p", [2, 3, 5, 7, 31])
 def test_field_accepts_prime(p):
