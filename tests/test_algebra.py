@@ -1,6 +1,6 @@
 import pytest
 
-from algebra import Field, Group, Ring
+from fulcrypt.algebra import Field, Group, Ring
 
 
 def Zn_add(n):

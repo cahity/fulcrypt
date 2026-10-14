@@ -9,7 +9,7 @@ Design decisions:
   (easier to debug and test).
 """
 
-from elements import GF2n
+from fulcrypt.elements import GF2n
 
 Nb = 4  # Words per block
 AES = GF2n(0x11B)

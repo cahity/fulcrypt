@@ -9,8 +9,8 @@ import functools
 
 import pytest
 
-from algebra import Field, Ring, as_field, as_ring
-from elements import GF2n, ZMod
+from fulcrypt.algebra import Field, Ring, as_field, as_ring
+from fulcrypt.elements import GF2n, ZMod
 
 GF4 = GF2n(0b111)  # x^2 + x + 1
 GF8 = GF2n(0b1011)  # x^3 + x + 1

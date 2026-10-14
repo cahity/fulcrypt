@@ -5,7 +5,7 @@ import random
 
 import pytest
 
-from elements import GF2Poly
+from fulcrypt.elements import GF2Poly
 
 P = GF2Poly
 

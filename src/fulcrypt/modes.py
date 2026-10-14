@@ -12,7 +12,7 @@ Design decisions:
 
 import os
 
-from aes import decrypt_block, encrypt_block
+from fulcrypt.aes import decrypt_block, encrypt_block
 
 BLOCK_SIZE = 16
 

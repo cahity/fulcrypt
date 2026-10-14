@@ -11,9 +11,9 @@ import random
 
 import pytest
 
-from algebra import Field, Group
-from algorithms import xgcd
-from elements import GF2Poly
+from fulcrypt.algebra import Field, Group
+from fulcrypt.algorithms import xgcd
+from fulcrypt.elements import GF2Poly
 
 # --- Adapter: edit these two to match your signature -------------------------
 

@@ -1,7 +1,7 @@
 """Printed walk-throughs of groups, rings and fields built from the element classes."""
 
-import algebra
-from elements import GF2n, GF2Poly, ZMod
+from fulcrypt import algebra
+from fulcrypt.elements import GF2n, GF2Poly, ZMod
 
 Z2, Z6, Z7 = ZMod(2), ZMod(6), ZMod(7)
 

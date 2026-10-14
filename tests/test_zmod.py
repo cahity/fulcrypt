@@ -6,8 +6,8 @@ import random
 
 import pytest
 
-from algorithms import power
-from elements import GF2Poly, ZMod
+from fulcrypt.algorithms import power
+from fulcrypt.elements import GF2Poly, ZMod
 
 Z7 = ZMod(7)
 Z11 = ZMod(11)

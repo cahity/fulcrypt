@@ -1,29 +1,47 @@
 [project]
-name = "lib"
+name = "fulcrypt"
 version = "0.1.0"
-description = "Add your description here"
+description = "Cryptography primitives implemented from scratch for learning (not for real-world use)"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Y. Cahit Yıldırım" }]
 requires-python = ">=3.14"
-dependencies = [
-    "pytest>=9.1.1",
+dependencies = []
+keywords = ["cryptography", "aes", "finite-fields", "education"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Education",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Security :: Cryptography",
+    "Private :: Do Not Upload",
 ]
+
+# [project.urls]  -- add once the GitHub repository exists
+# Repository = "https://github.com/<user>/fulcrypt"
+
+[build-system]
+requires = ["uv_build>=0.9.10,<0.10"]
+build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
     "mypy>=2.4.0",
+    "pytest>=9.1.1",
     "pytest-timeout>=2.4.0",
     "ruff>=0.17.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
 timeout = 1
 timeout_method = "thread"
 
 [tool.ruff]
 line-length = 100
 target-version = "py314"
+src = ["src"]
 
 [tool.ruff.lint]
 select = [
@@ -49,10 +67,10 @@ ignore-names = ["ZMod", "GF2n", "F", "R", "Z*", "*_Z[0-9]*"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D"]          # test names describe themselves
-"main.py" = ["D"]
 
 [tool.mypy]
 python_version = "3.14"
-files = ["algebra.py", "algorithms.py", "elements.py", "aes.py", "modes.py", "example.py"]
+mypy_path = "src"
+files = ["src/fulcrypt", "examples"]
 check_untyped_defs = true
 warn_unused_ignores = true

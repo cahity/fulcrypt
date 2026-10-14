@@ -6,7 +6,7 @@ import functools
 from dataclasses import dataclass
 from typing import Any
 
-from algorithms import inverse_mod, power
+from fulcrypt.algorithms import inverse_mod, power
 
 
 @dataclass(frozen=True)

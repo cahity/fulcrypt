@@ -5,8 +5,8 @@ import random
 
 import pytest
 
-from algorithms import power
-from elements import GF2n, GF2Poly, ZMod
+from fulcrypt.algorithms import power
+from fulcrypt.elements import GF2n, GF2Poly, ZMod
 
 AES = GF2n(0x11B)  # x^8 + x^4 + x^3 + x + 1
 GF8 = GF2n(0b1011)  # x^3 + x + 1

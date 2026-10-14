@@ -1,4 +1,4 @@
-"""Tests for modes.py: padding, ECB and CBC. Built step by step; see PLANNING.md.
+"""Tests for modes.py: padding, ECB and CBC. Built step by step.
 
 Design: modes work on plain bytes; mode functions take block-aligned data,
 and padding is a separate layer.
@@ -9,7 +9,7 @@ import random
 
 import pytest
 
-import modes
+from fulcrypt import modes
 
 
 def random_bytes(rng, n):
@@ -267,7 +267,7 @@ class TestECB:
         assert modes.ecb_decrypt(self.CT_256, KEY_256) == SP800_PLAINTEXT
 
     def test_single_block_is_plain_aes(self):
-        import aes
+        from fulcrypt import aes
 
         block = SP800_PLAINTEXT[:16]
         assert modes.ecb_encrypt(block, KEY_128) == aes.encrypt_block(block, KEY_128)
@@ -435,7 +435,7 @@ class TestCBC:
 
     def test_first_block(self):
         # C_0 = AES(K, P_0 xor IV)
-        import aes
+        from fulcrypt import aes
 
         expected = aes.encrypt_block(modes.xor_bytes(SP800_PLAINTEXT[:16], SP800_IV), KEY_128)
         assert modes.cbc_encrypt(SP800_PLAINTEXT[:16], KEY_128, SP800_IV) == expected

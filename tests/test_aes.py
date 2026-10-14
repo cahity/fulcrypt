@@ -1,4 +1,4 @@
-"""Tests for AES (FIPS-197). Built step by step; see PLANNING.md.
+"""Tests for AES (FIPS-197). Built step by step.
 
 Design: bytes inside the cipher are GF(2^8) field elements, the state is state[r][c]
 (4 rows x 4 columns, filled column by column), and every transformation returns a new state.
@@ -9,9 +9,9 @@ import random
 
 import pytest
 
-import aes
-from aes import bytes_to_state, state_to_bytes
-from elements import GF2n
+from fulcrypt import aes
+from fulcrypt.aes import bytes_to_state, state_to_bytes
+from fulcrypt.elements import GF2n
 
 AES = GF2n(0x11B)
 
