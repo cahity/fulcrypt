@@ -3,6 +3,7 @@
 Design: modes work on plain bytes; mode functions take block-aligned data, padding is a separate layer.
 """
 
+import os
 import random
 
 import pytest
@@ -365,3 +366,280 @@ class TestECBLeaksPatterns:
         candidates = others[:7] + [ecb_ct] + others[7:]
         guesses = [i for i, ct in enumerate(candidates) if modes.repeated_blocks(ct) > 0]
         assert guesses == [7]
+
+
+# =============================================================================
+# Step 5: CBC  (NIST SP 800-38A section 6.2, Appendix F.2)
+# =============================================================================
+
+SP800_IV = bytes(range(16))   # 000102...0f
+
+
+class TestCBC:
+    # F.2.1 / F.2.2: CBC-AES128
+    CT_128 = bytes.fromhex(
+        "7649abac8119b246cee98e9b12e9197d"
+        "5086cb9b507219ee95db113a917678b2"
+        "73bed6b8e3c1743b7116e69e22229516"
+        "3ff1caa1681fac09120eca307586e1a7"
+    )
+    # F.2.5 / F.2.6: CBC-AES256
+    CT_256 = bytes.fromhex(
+        "f58c4c04d6e5f1ba779eabfb5f7bfbd6"
+        "9cfc4e967edb808d679f777bc6702c7d"
+        "39f23369a9d9bacfa530e26304231461"
+        "b2eb05e2c39be9fcda6c19078c6a9d1b"
+    )
+
+    def test_encrypt_aes128(self):
+        assert modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, SP800_IV) == self.CT_128
+
+    def test_decrypt_aes128(self):
+        assert modes.cbc_decrypt(self.CT_128, KEY_128, SP800_IV) == SP800_PLAINTEXT
+
+    def test_encrypt_aes256(self):
+        assert modes.cbc_encrypt(SP800_PLAINTEXT, KEY_256, SP800_IV) == self.CT_256
+
+    def test_decrypt_aes256(self):
+        assert modes.cbc_decrypt(self.CT_256, KEY_256, SP800_IV) == SP800_PLAINTEXT
+
+    def test_first_block(self):
+        # C_0 = AES(K, P_0 xor IV)
+        import aes
+        expected = aes.encrypt_block(modes.xor_bytes(SP800_PLAINTEXT[:16], SP800_IV), KEY_128)
+        assert modes.cbc_encrypt(SP800_PLAINTEXT[:16], KEY_128, SP800_IV) == expected
+
+    def test_empty(self):
+        assert modes.cbc_encrypt(b"", KEY_128, SP800_IV) == b""
+        assert modes.cbc_decrypt(b"", KEY_128, SP800_IV) == b""
+
+    def test_does_not_pad(self):
+        assert len(modes.cbc_encrypt(bytes(32), KEY_128, SP800_IV)) == 32
+
+    def test_returns_bytes(self):
+        ct = modes.cbc_encrypt(bytearray(SP800_PLAINTEXT), KEY_128, bytearray(SP800_IV))
+        assert type(ct) is bytes
+        assert type(modes.cbc_decrypt(bytearray(ct), KEY_128, bytearray(SP800_IV))) is bytes
+
+    @pytest.mark.parametrize("length", [1, 15, 17, 33])
+    def test_rejects_unaligned(self, length):
+        with pytest.raises(ValueError):
+            modes.cbc_encrypt(bytes(length), KEY_128, SP800_IV)
+        with pytest.raises(ValueError):
+            modes.cbc_decrypt(bytes(length), KEY_128, SP800_IV)
+
+    @pytest.mark.parametrize("iv_len", [0, 8, 15, 17, 32])
+    def test_rejects_bad_iv(self, iv_len):
+        with pytest.raises(ValueError):
+            modes.cbc_encrypt(bytes(32), KEY_128, bytes(iv_len))
+        with pytest.raises(ValueError):
+            modes.cbc_decrypt(bytes(32), KEY_128, bytes(iv_len))
+
+    def test_rejects_bad_key(self):
+        with pytest.raises(ValueError):
+            modes.cbc_encrypt(bytes(16), bytes(20), SP800_IV)
+
+    def test_repeated_blocks_no_longer_repeat(self):
+        # The ECB leak from Step 4 is gone: chaining makes equal plaintext blocks encrypt differently.
+        plaintext = b"A" * 16 * 8
+        assert modes.repeated_blocks(modes.ecb_encrypt(plaintext, KEY_128)) == 7
+        assert modes.repeated_blocks(modes.cbc_encrypt(plaintext, KEY_128, SP800_IV)) == 0
+
+    def test_iv_changes_every_block(self):
+        a = modes.split_blocks(modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, SP800_IV))
+        b = modes.split_blocks(modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, bytes(16)))
+        assert all(x != y for x, y in zip(a, b))
+
+    def test_same_iv_same_ciphertext(self):
+        # Deterministic for a fixed IV -- which is exactly why IVs must not be reused (Step 6).
+        assert modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, SP800_IV) == \
+            modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, SP800_IV)
+
+    def test_prefix(self):
+        # Block i depends only on blocks 0..i, so encrypting a prefix gives a prefix.
+        full = modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, SP800_IV)
+        assert modes.cbc_encrypt(SP800_PLAINTEXT[:32], KEY_128, SP800_IV) == full[:32]
+
+    def test_decrypt_chains_with_previous_ciphertext(self):
+        # P_i = AES^-1(C_i) xor C_{i-1}: any ciphertext block can serve as the IV for the rest.
+        ct = self.CT_128
+        assert modes.cbc_decrypt(ct[16:], KEY_128, ct[:16]) == SP800_PLAINTEXT[16:]
+        assert modes.cbc_decrypt(ct[32:48], KEY_128, ct[16:32]) == SP800_PLAINTEXT[32:48]
+
+    def test_wrong_iv_only_breaks_first_block(self):
+        pt = modes.cbc_decrypt(self.CT_128, KEY_128, bytes(16))
+        assert pt[:16] != SP800_PLAINTEXT[:16]
+        assert pt[16:] == SP800_PLAINTEXT[16:]
+
+    def test_round_trip_with_padding(self):
+        rng = random.Random(7)
+        for length in range(0, 50, 7):
+            msg = random_bytes(rng, length)
+            key, iv = random_bytes(rng, 16), random_bytes(rng, 16)
+            ct = modes.cbc_encrypt(modes.pad(msg), key, iv)
+            assert modes.unpad(modes.cbc_decrypt(ct, key, iv)) == msg
+
+
+# =============================================================================
+# Step 6: Using CBC safely
+# =============================================================================
+# The first three classes check your answers to the plan's questions 1-3 as properties of CBC.
+# Try answering the questions before reading these tests: they contain the answers.
+
+def flip_bit(data, bit):
+    """Return data with one bit flipped (bit 0 = most significant bit of byte 0)."""
+    out = bytearray(data)
+    out[bit // 8] ^= 0x80 >> (bit % 8)
+    return bytes(out)
+
+
+def bit_diff(a, b):
+    return sum(bin(x ^ y).count("1") for x, y in zip(a, b))
+
+
+class TestIVReuse:
+    """Question 1: same key and IV for two messages."""
+
+    def test_equal_messages_give_equal_ciphertexts(self):
+        # The attacker learns that two messages are identical.
+        msg = SP800_PLAINTEXT
+        assert modes.cbc_encrypt(msg, KEY_128, SP800_IV) == modes.cbc_encrypt(msg, KEY_128, SP800_IV)
+
+    def test_common_prefix_is_visible(self):
+        # Messages that agree on their first k blocks give ciphertexts that agree on k blocks,
+        # and differ from the first differing block onwards.
+        a = SP800_PLAINTEXT
+        b = SP800_PLAINTEXT[:32] + bytes(32)
+        ca = modes.split_blocks(modes.cbc_encrypt(a, KEY_128, SP800_IV))
+        cb = modes.split_blocks(modes.cbc_encrypt(b, KEY_128, SP800_IV))
+        assert ca[:2] == cb[:2]
+        assert ca[2] != cb[2] and ca[3] != cb[3]
+
+    def test_fresh_iv_hides_the_prefix(self):
+        a = modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, SP800_IV)
+        b = modes.cbc_encrypt(SP800_PLAINTEXT, KEY_128, bytes(16))
+        assert all(x != y for x, y in zip(modes.split_blocks(a), modes.split_blocks(b)))
+
+
+class TestErrorPropagation:
+    """Question 2: flip one bit in ciphertext block i."""
+
+    CT = TestCBC.CT_128
+
+    @pytest.mark.parametrize("block, bit", [(0, 0), (0, 77), (1, 5), (2, 127)])
+    def test_garbles_block_i_flips_same_bit_in_block_i_plus_1(self, block, bit):
+        bad = flip_bit(self.CT, 128 * block + bit)
+        pt = modes.split_blocks(modes.cbc_decrypt(bad, KEY_128, SP800_IV))
+        orig = modes.split_blocks(SP800_PLAINTEXT)
+        for i in range(4):
+            if i == block:
+                assert bit_diff(pt[i], orig[i]) > 16, "block i decrypts to garbage"
+            elif i == block + 1:
+                assert pt[i] == flip_bit(orig[i], bit), "block i+1 has exactly the same bit flipped"
+            else:
+                assert pt[i] == orig[i], "all other blocks are unaffected"
+
+    def test_last_block_only_garbles_itself(self):
+        bad = flip_bit(self.CT, 128 * 3 + 9)
+        pt = modes.cbc_decrypt(bad, KEY_128, SP800_IV)
+        assert pt[:48] == SP800_PLAINTEXT[:48]
+        assert pt[48:] != SP800_PLAINTEXT[48:]
+
+    def test_flipping_the_iv_flips_the_first_block_only(self):
+        pt = modes.cbc_decrypt(self.CT, KEY_128, flip_bit(SP800_IV, 3))
+        assert pt == flip_bit(SP800_PLAINTEXT, 3)
+
+
+class TestBitFlipping:
+    """Question 3: change plaintext block i+1 to a chosen value without the key."""
+
+    def test_attacker_sets_chosen_plaintext(self):
+        key, iv = KEY_128, SP800_IV
+        known = b"user=alice;role=" + b"guest;padding..."      # attacker knows block 1 is "guest;..."
+        target = b"admin;padding..."
+        target += b"." * (16 - len(target))
+        ct = modes.cbc_encrypt(known, key, iv)
+
+        # C_0' = C_0 xor P_1 xor P_1'  makes block 1 decrypt to P_1'.
+        forged = modes.xor_bytes(ct[:16], modes.xor_bytes(known[16:32], target)) + ct[16:]
+        pt = modes.cbc_decrypt(forged, key, iv)
+        assert pt[16:] == target          # chosen change, exactly
+        assert pt[:16] != known[:16]      # the price: block 0 is garbage
+
+    def test_forged_iv_changes_first_block_cleanly(self):
+        # With the IV sent alongside the ciphertext (Step 6 functions), the attacker can edit
+        # block 0 too, and nothing else gets garbled.
+        key = KEY_128
+        msg = b"amount=00000100;"     # exactly one block
+        data = modes.encrypt_message(msg, key)
+        iv, ct = data[:16], data[16:]
+        forged_iv = modes.xor_bytes(iv, modes.xor_bytes(msg, b"amount=99999999;"))
+        assert modes.decrypt_message(forged_iv + ct, key) == b"amount=99999999;"
+
+
+class TestMessageAPI:
+    """encrypt_message / decrypt_message: random IV, padding, IV prepended."""
+
+    @pytest.mark.parametrize("length", range(0, 65, 3))
+    def test_round_trip(self, length):
+        msg = bytes((5 * i) % 256 for i in range(length))
+        assert modes.decrypt_message(modes.encrypt_message(msg, KEY_128), KEY_128) == msg
+
+    @pytest.mark.parametrize("length", [0, 1, 15, 16, 17, 32])
+    def test_layout(self, length):
+        # IV (16 bytes) || cbc_encrypt(pad(message), key, IV)
+        msg = bytes(length)
+        data = modes.encrypt_message(msg, KEY_128)
+        assert len(data) == 16 + len(modes.pad(msg))
+        iv, ct = data[:16], data[16:]
+        assert modes.cbc_encrypt(modes.pad(msg), KEY_128, iv) == ct
+
+    def test_returns_bytes(self):
+        data = modes.encrypt_message(b"hello", KEY_128)
+        assert type(data) is bytes
+        assert type(modes.decrypt_message(data, KEY_128)) is bytes
+
+    def test_same_message_encrypts_differently(self):
+        msg = b"attack at dawn"
+        outs = {modes.encrypt_message(msg, KEY_128) for _ in range(20)}
+        assert len(outs) == 20
+        assert len({o[:16] for o in outs}) == 20     # every IV is fresh
+
+    def test_iv_comes_from_os_urandom(self, monkeypatch):
+        calls = []
+
+        def fake_urandom(n):
+            calls.append(n)
+            return bytes(range(0xA0, 0xA0 + n))
+
+        monkeypatch.setattr(os, "urandom", fake_urandom)
+        if hasattr(modes, "urandom"):                 # also covers `from os import urandom`
+            monkeypatch.setattr(modes, "urandom", fake_urandom)
+        data = modes.encrypt_message(b"hello", KEY_128)
+        assert calls == [16]
+        assert data[:16] == bytes(range(0xA0, 0xB0))
+
+    def test_aes256_key(self):
+        msg = b"a message for a 256-bit key"
+        assert modes.decrypt_message(modes.encrypt_message(msg, KEY_256), KEY_256) == msg
+
+    @pytest.mark.parametrize("length", [0, 15, 16, 31, 33])
+    def test_decrypt_rejects_bad_length(self, length):
+        # Valid data is IV + at least one block, and block-aligned.
+        with pytest.raises(ValueError):
+            modes.decrypt_message(bytes(length), KEY_128)
+
+    def test_decrypt_rejects_tampered_padding(self):
+        data = modes.encrypt_message(b"hello", KEY_128)
+        # Flipping the last byte of the second-to-last block (here: the IV) changes the padding byte.
+        bad = flip_bit(data, 8 * 15 + 7)
+        with pytest.raises(ValueError):
+            modes.decrypt_message(bad, KEY_128)
+
+    def test_wrong_key_does_not_return_the_message(self):
+        data = modes.encrypt_message(b"secret message", KEY_128)
+        try:
+            out = modes.decrypt_message(data, bytes(16))
+        except ValueError:
+            return                                    # most likely: invalid padding
+        assert out != b"secret message"

@@ -10,6 +10,7 @@ Design decisions:
   a random IV and prepends it to the ciphertext.
 """
 
+import os
 from aes import encrypt_block, decrypt_block
 
 
@@ -52,22 +53,63 @@ def unpad(data: bytes, block_size: int = BLOCK_SIZE) -> bytes:
     return bytes(data[:-data[-1]])
 
 
-def ecb_encrypt(plaintext: bytes, key: bytes, block_size: int = BLOCK_SIZE) -> bytes:
-    if len(plaintext) % block_size != 0:
-        raise ValueError("Plaintext should be block-aligned. Consider padding.")
-
-    blocks = split_blocks(plaintext, block_size)
+def ecb_encrypt(plaintext: bytes, key: bytes) -> bytes:
+    blocks = split_blocks(plaintext, BLOCK_SIZE)
     return b"".join(encrypt_block(block, key) for block in blocks)
 
 
-def ecb_decrypt(ciphertext: bytes, key: bytes, block_size: int = BLOCK_SIZE) -> bytes:
-    if len(ciphertext) % block_size != 0:
-        raise ValueError("Ciphertext should be block-aligned.")
-
-    blocks = split_blocks(ciphertext, block_size)
+def ecb_decrypt(ciphertext: bytes, key: bytes) -> bytes:
+    blocks = split_blocks(ciphertext, BLOCK_SIZE)
     return b"".join(decrypt_block(block, key) for block in blocks)
 
 
 def repeated_blocks(data: bytes, block_size: int = BLOCK_SIZE) -> int:
     blocks = split_blocks(data, block_size)
     return len(blocks) - len(set(blocks))
+
+
+def cbc_encrypt(plaintext: bytes, key: bytes, iv: bytes) -> bytes:
+    if len(iv) != BLOCK_SIZE:
+        raise ValueError(f"IV must be exactly {BLOCK_SIZE} bytes.")
+
+    blocks = split_blocks(plaintext, BLOCK_SIZE)
+
+    prev = iv
+    ciphertext = []
+    for block in blocks:
+        ciphertext.append(encrypt_block(xor_bytes(block, prev), key))
+        prev = ciphertext[-1]
+
+    return b"".join(ciphertext)
+
+
+def cbc_decrypt(ciphertext: bytes, key: bytes, iv: bytes) -> bytes:
+    if len(iv) != BLOCK_SIZE:
+        raise ValueError(f"IV must be exactly {BLOCK_SIZE} bytes.")
+
+    blocks = split_blocks(ciphertext, BLOCK_SIZE)
+    blocks = [iv] + blocks
+
+    plaintext = []
+    for prev, curr in zip(blocks, blocks[1:]):
+        plaintext.append(xor_bytes(decrypt_block(curr, key), prev))
+
+    return b"".join(plaintext)
+
+
+def encrypt_message(message: bytes, key: bytes) -> bytes:
+    iv = os.urandom(BLOCK_SIZE)
+    msg_pad = pad(message, BLOCK_SIZE)
+    return iv + cbc_encrypt(msg_pad, key, iv)
+
+
+def decrypt_message(data: bytes, key: bytes) -> bytes:
+    if len(data) % BLOCK_SIZE != 0 or len(data) <= BLOCK_SIZE:
+        raise ValueError(f"Invalid data size to decrypt at {len(data)} bytes.")
+
+    iv = data[:BLOCK_SIZE]
+    ciphertext = data[BLOCK_SIZE:]
+    msg_pad = cbc_decrypt(ciphertext, key, iv)
+    msg = unpad(msg_pad, BLOCK_SIZE)
+
+    return msg
