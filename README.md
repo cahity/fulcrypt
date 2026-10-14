@@ -55,7 +55,7 @@ More walk-throughs are in [`examples/example.py`](examples/example.py).
 Requires Python 3.14 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/cahity/fulcrypt.git
 cd fulcrypt
 uv sync
 git config core.hooksPath .githooks   # enable the pre-commit checks

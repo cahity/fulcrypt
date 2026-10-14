@@ -18,8 +18,8 @@ classifiers = [
     "Private :: Do Not Upload",
 ]
 
-# [project.urls]  -- add once the GitHub repository exists
-# Repository = "https://github.com/<user>/fulcrypt"
+[project.urls]
+Repository = "https://github.com/cahity/fulcrypt"
 
 [build-system]
 requires = ["uv_build>=0.9.10,<0.10"]
