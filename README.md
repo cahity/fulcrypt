@@ -16,9 +16,12 @@ Cryptography primitives implemented from scratch, to learn how they work.
 | `fulcrypt.algorithms` | Generic extended Euclid (`xgcd`), `inverse_mod`, `power` (square-and-multiply); work on `int` and every element class |
 | `fulcrypt.algebra` | Brute-force checks of the group, ring and field axioms on small structures |
 | `fulcrypt.aes` | AES (FIPS-197) with 128, 192 and 256-bit keys, built on GF(2⁸) field elements |
-| `fulcrypt.modes` | PKCS#7 padding, ECB and CBC modes (NIST SP 800-38A) |
+| `fulcrypt.modes` | PKCS#7 padding, ECB, CBC, CTR and OFB modes (NIST SP 800-38A) |
+| `fulcrypt.hashes` | SHA-256 and SHA-224 (FIPS 180-4), and the length extension attack on SHA-256 |
+| `fulcrypt.mac` | HMAC-SHA256 (FIPS 198-1), constant-time tag comparison |
 
-Every function is checked against the published test vectors of its standard (FIPS-197, NIST SP 800-38A).
+Every function is checked against the published test vectors of its standard (FIPS-197,
+NIST SP 800-38A, FIPS 180-4, RFC 4231).
 
 ## Usage
 
@@ -46,6 +49,17 @@ AES and CBC:
 >>> data = modes.encrypt_message(b"attack at dawn", key)   # random IV || CBC ciphertext
 >>> modes.decrypt_message(data, key)
 b'attack at dawn'
+```
+
+Hashing and HMAC:
+
+```python
+>>> from fulcrypt import hashes, mac
+>>> hashes.sha256(b"abc").hex()
+'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+>>> tag = mac.hmac_sha256(b"key", b"message")
+>>> mac.hmac_sha256_verify(b"key", b"message", tag)
+True
 ```
 
 More walk-throughs are in [`examples/example.py`](examples/example.py).
