@@ -106,6 +106,54 @@ class TestSplitBlocks:
             modes.split_blocks(bytes(10), 8)
 
 
+class TestSplitBlocksUnaligned:
+    def test_empty(self):
+        assert modes.split_blocks_unaligned(b"") == []
+
+    def test_partial_last_block(self):
+        data = bytes(range(40))
+        assert modes.split_blocks_unaligned(data) == [
+            bytes(range(0, 16)),
+            bytes(range(16, 32)),
+            bytes(range(32, 40)),
+        ]
+
+    def test_shorter_than_one_block(self):
+        assert modes.split_blocks_unaligned(b"abc") == [b"abc"]
+
+    @pytest.mark.parametrize("length", [16, 32, 64])
+    def test_aligned_same_as_split_blocks(self, length):
+        data = bytes(range(length))
+        assert modes.split_blocks_unaligned(data) == modes.split_blocks(data)
+
+    @pytest.mark.parametrize("length", range(0, 50))
+    def test_shape(self, length):
+        # ceil(length / 16) blocks; all full except possibly the last; joining restores the data.
+        data = bytes((3 * i) % 256 for i in range(length))
+        blocks = modes.split_blocks_unaligned(data)
+        assert len(blocks) == -(-length // 16)
+        assert all(len(b) == 16 for b in blocks[:-1])
+        if blocks:
+            assert 1 <= len(blocks[-1]) <= 16
+        assert b"".join(blocks) == data
+
+    @pytest.mark.parametrize(
+        "block_size, sizes", [(1, [1] * 10), (3, [3, 3, 3, 1]), (4, [4, 4, 2])]
+    )
+    def test_custom_block_size(self, block_size, sizes):
+        blocks = modes.split_blocks_unaligned(bytes(10), block_size)
+        assert [len(b) for b in blocks] == sizes
+
+    def test_returns_bytes(self):
+        blocks = modes.split_blocks_unaligned(bytearray(20))
+        assert all(type(b) is bytes for b in blocks)
+
+    @pytest.mark.parametrize("block_size", [0, -1])
+    def test_rejects_bad_block_size(self, block_size):
+        with pytest.raises(ValueError):
+            modes.split_blocks_unaligned(b"abc", block_size)
+
+
 # =============================================================================
 # Step 2: PKCS#7 padding  (RFC 5652 section 6.3)
 # =============================================================================
@@ -682,3 +730,265 @@ class TestMessageAPI:
         except ValueError:
             return  # most likely: invalid padding
         assert out != b"secret message"
+
+
+# =============================================================================
+# Part 1, Step 1: CTR  (NIST SP 800-38A section 6.5, Appendix F.5)
+# =============================================================================
+
+SP800_COUNTER = bytes.fromhex("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff")
+
+
+class TestIncCounter:
+    @pytest.mark.parametrize(
+        "block, bits, expected",
+        [
+            ("00" * 16, 128, "00" * 15 + "01"),
+            ("00" * 15 + "ff", 128, "00" * 14 + "0100"),  # carry within the counter
+            ("ff" * 16, 128, "00" * 16),  # wraps mod 2^128
+            ("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff", 128, "f0f1f2f3f4f5f6f7f8f9fafbfcfdff00"),
+            ("aa" * 12 + "00000001", 32, "aa" * 12 + "00000002"),
+            ("aa" * 12 + "ffffffff", 32, "aa" * 12 + "00000000"),  # wraps, IV part untouched
+            ("aa" * 8 + "ffffffffffffffff", 64, "aa" * 8 + "0000000000000000"),
+            ("aa" * 15 + "ff", 8, "aa" * 15 + "00"),
+            # Counters that don't end on a byte boundary: the IV bits sharing the top
+            # counter byte must survive.
+            ("aa" * 15 + "a5", 4, "aa" * 15 + "a6"),
+            ("aa" * 15 + "af", 4, "aa" * 15 + "a0"),  # 4-bit wrap, high nibble kept
+            ("aa" * 14 + "afff", 12, "aa" * 14 + "a000"),
+            ("ff" * 16, 100, "fffffff" + "0" * 25),  # top 28 bits are IV
+        ],
+    )
+    def test_known(self, block, bits, expected):
+        assert modes.inc_counter(bytes.fromhex(block), bits).hex() == expected
+
+    def test_default_is_128_bits(self):
+        assert modes.inc_counter(b"\xff" * 16) == bytes(16)
+
+    def test_returns_bytes(self):
+        assert type(modes.inc_counter(bytearray(16))) is bytes
+
+    @pytest.mark.parametrize("bits", [0, -8, 129])
+    def test_rejects_bad_bits(self, bits):
+        with pytest.raises(ValueError):
+            modes.inc_counter(bytes(16), bits)
+
+    @pytest.mark.parametrize("length", [0, 15, 17])
+    def test_rejects_bad_block(self, length):
+        with pytest.raises(ValueError):
+            modes.inc_counter(bytes(length))
+
+
+class TestCTR:
+    # F.5.1 / F.5.2: CTR-AES128
+    CT_128 = bytes.fromhex(
+        "874d6191b620e3261bef6864990db6ce"
+        "9806f66b7970fdff8617187bb9fffdff"
+        "5ae4df3edbd5d35e5b4f09020db03eab"
+        "1e031dda2fbe03d1792170a0f3009cee"
+    )
+    # F.5.5 / F.5.6: CTR-AES256
+    CT_256 = bytes.fromhex(
+        "601ec313775789a5b7a7f504bbf3d228"
+        "f443e3ca4d62b59aca84e990cacaf5c5"
+        "2b0930daa23de94ce87017ba2d84988d"
+        "dfc9c58db67aada613c2dd08457941a6"
+    )
+
+    def test_encrypt_aes128(self):
+        assert modes.ctr_encrypt(SP800_PLAINTEXT, KEY_128, SP800_COUNTER) == self.CT_128
+
+    def test_decrypt_aes128(self):
+        assert modes.ctr_decrypt(self.CT_128, KEY_128, SP800_COUNTER) == SP800_PLAINTEXT
+
+    def test_encrypt_aes256(self):
+        assert modes.ctr_encrypt(SP800_PLAINTEXT, KEY_256, SP800_COUNTER) == self.CT_256
+
+    def test_decrypt_aes256(self):
+        assert modes.ctr_decrypt(self.CT_256, KEY_256, SP800_COUNTER) == SP800_PLAINTEXT
+
+    def test_first_keystream_block_is_aes_of_counter(self):
+        from fulcrypt import aes
+
+        keystream = modes.ctr_encrypt(bytes(16), KEY_128, SP800_COUNTER)
+        assert keystream == aes.encrypt_block(SP800_COUNTER, KEY_128)
+
+    @pytest.mark.parametrize("length", [0, 1, 15, 16, 17, 31, 33, 50, 64])
+    def test_any_length_no_padding(self, length):
+        # A stream cipher: output length == input length, a partial last block is fine.
+        data = SP800_PLAINTEXT[:length]
+        ct = modes.ctr_encrypt(data, KEY_128, SP800_COUNTER)
+        assert len(ct) == length
+        assert ct == self.CT_128[:length]  # a prefix of the full ciphertext
+        assert modes.ctr_decrypt(ct, KEY_128, SP800_COUNTER) == data
+
+    def test_decrypt_is_encrypt(self):
+        rng = random.Random(20)
+        data = random_bytes(rng, 45)
+        assert modes.ctr_decrypt(data, KEY_128, SP800_COUNTER) == modes.ctr_encrypt(
+            data, KEY_128, SP800_COUNTER
+        )
+
+    def test_counter_bits_32_wraps_without_touching_iv(self):
+        # GCM-style counter: IV (96 bits) || counter (32 bits). The second keystream block must
+        # come from IV || 00000000, not from a carry into the IV. Expected value from a reference.
+        iv = bytes.fromhex("cafebabefacedbaddecaf888")
+        ks = modes.ctr_encrypt(bytes(32), KEY_128, iv + b"\xff\xff\xff\xff", counter_bits=32)
+        assert ks[16:].hex() == "8d9e5b8d69f60625ec32f971a71ce8b0"
+
+    def test_counter_bits_change_the_result(self):
+        start = b"\x00" * 12 + b"\xff\xff\xff\xff"
+        a = modes.ctr_encrypt(bytes(32), KEY_128, start, counter_bits=32)
+        b = modes.ctr_encrypt(bytes(32), KEY_128, start, counter_bits=128)
+        assert a[:16] == b[:16]  # same first counter block
+        assert a[16:] != b[16:]  # 32-bit wraps to 0, 128-bit carries into byte 11
+
+    def test_random_access(self):
+        # Block i can be decrypted alone by starting the counter at T_0 + i.
+        t2 = modes.inc_counter(modes.inc_counter(SP800_COUNTER))
+        assert modes.ctr_decrypt(self.CT_128[32:48], KEY_128, t2) == SP800_PLAINTEXT[32:48]
+
+    def test_returns_bytes(self):
+        out = modes.ctr_encrypt(bytearray(b"abc"), KEY_128, bytearray(SP800_COUNTER))
+        assert type(out) is bytes
+
+    @pytest.mark.parametrize("length", [0, 12, 15, 17])
+    def test_rejects_bad_counter_block(self, length):
+        with pytest.raises(ValueError):
+            modes.ctr_encrypt(b"abc", KEY_128, bytes(length))
+
+    def test_rejects_bad_key(self):
+        with pytest.raises(ValueError):
+            modes.ctr_encrypt(b"abc", bytes(20), SP800_COUNTER)
+
+
+class TestCTRProperties:
+    """Why the counter block must never repeat under one key, and why CTR alone is not enough."""
+
+    def test_nonce_reuse_leaks_xor_of_plaintexts(self):
+        # Same key and counter -> same keystream: C1 xor C2 = P1 xor P2 (a "two-time pad").
+        p1 = b"attack at dawn!! meet at the old bridge"
+        p2 = b"retreat at noon. bring the documents..."
+        c1 = modes.ctr_encrypt(p1, KEY_128, SP800_COUNTER)
+        c2 = modes.ctr_encrypt(p2, KEY_128, SP800_COUNTER)
+        assert modes.xor_bytes(c1, c2) == modes.xor_bytes(p1, p2)
+
+    def test_known_plaintext_reveals_the_other_message(self):
+        p1 = b"known plaintext, e.g. a fixed header.."
+        p2 = b"the secret message under the same nonce"[: len(p1)]
+        c1 = modes.ctr_encrypt(p1, KEY_128, SP800_COUNTER)
+        c2 = modes.ctr_encrypt(p2, KEY_128, SP800_COUNTER)
+        keystream = modes.xor_bytes(c1, p1)
+        assert modes.xor_bytes(c2, keystream) == p2
+
+    @pytest.mark.parametrize("bit", [0, 7, 100, 300])
+    def test_bit_flip_flips_exactly_that_bit(self, bit):
+        # Fully malleable, and unlike CBC nothing gets garbled: CTR needs a MAC.
+        ct = modes.ctr_encrypt(SP800_PLAINTEXT, KEY_128, SP800_COUNTER)
+        pt = modes.ctr_decrypt(flip_bit(ct, bit), KEY_128, SP800_COUNTER)
+        assert pt == flip_bit(SP800_PLAINTEXT, bit)
+
+
+# =============================================================================
+# Part 1, Step 2: OFB  (NIST SP 800-38A section 6.4, Appendix F.4)
+# =============================================================================
+
+
+class TestOFB:
+    # F.4.1 / F.4.2: OFB-AES128, IV = 000102...0f
+    CT_128 = bytes.fromhex(
+        "3b3fd92eb72dad20333449f8e83cfb4a"
+        "7789508d16918f03f53c52dac54ed825"
+        "9740051e9c5fecf64344f7a82260edcc"
+        "304c6528f659c77866a510d9c1d6ae5e"
+    )
+    # F.4.5 / F.4.6: OFB-AES256
+    CT_256 = bytes.fromhex(
+        "dc7e84bfda79164b7ecd8486985d3860"
+        "4febdc6740d20b3ac88f6ad82a4fb08d"
+        "71ab47a086e86eedf39d1c5bba97c408"
+        "0126141d67f37be8538f5a8be740e484"
+    )
+
+    def test_encrypt_aes128(self):
+        assert modes.ofb_encrypt(SP800_PLAINTEXT, KEY_128, SP800_IV) == self.CT_128
+
+    def test_decrypt_aes128(self):
+        assert modes.ofb_decrypt(self.CT_128, KEY_128, SP800_IV) == SP800_PLAINTEXT
+
+    def test_encrypt_aes256(self):
+        assert modes.ofb_encrypt(SP800_PLAINTEXT, KEY_256, SP800_IV) == self.CT_256
+
+    def test_decrypt_aes256(self):
+        assert modes.ofb_decrypt(self.CT_256, KEY_256, SP800_IV) == SP800_PLAINTEXT
+
+    def test_keystream_chains_through_aes(self):
+        # Encrypting zeros reveals the keystream: O_1 = AES(K, IV), O_{i+1} = AES(K, O_i).
+        from fulcrypt import aes
+
+        ks = modes.split_blocks(modes.ofb_encrypt(bytes(48), KEY_128, SP800_IV))
+        assert ks[0] == aes.encrypt_block(SP800_IV, KEY_128)
+        assert ks[1] == aes.encrypt_block(ks[0], KEY_128)
+        assert ks[2] == aes.encrypt_block(ks[1], KEY_128)
+
+    def test_differs_from_ctr(self):
+        # Same first keystream block as CTR started at the IV, different after that.
+        ofb = modes.ofb_encrypt(bytes(32), KEY_128, SP800_IV)
+        ctr = modes.ctr_encrypt(bytes(32), KEY_128, SP800_IV)
+        assert ofb[:16] == ctr[:16]
+        assert ofb[16:] != ctr[16:]
+
+    @pytest.mark.parametrize("length", [0, 1, 15, 16, 17, 31, 33, 50, 64])
+    def test_any_length_no_padding(self, length):
+        data = SP800_PLAINTEXT[:length]
+        ct = modes.ofb_encrypt(data, KEY_128, SP800_IV)
+        assert ct == self.CT_128[:length]
+        assert modes.ofb_decrypt(ct, KEY_128, SP800_IV) == data
+
+    def test_decrypt_is_encrypt(self):
+        rng = random.Random(21)
+        data = random_bytes(rng, 45)
+        assert modes.ofb_decrypt(data, KEY_128, SP800_IV) == modes.ofb_encrypt(
+            data, KEY_128, SP800_IV
+        )
+
+    def test_returns_bytes(self):
+        out = modes.ofb_encrypt(bytearray(b"abc"), KEY_128, bytearray(SP800_IV))
+        assert type(out) is bytes
+
+    @pytest.mark.parametrize("iv_len", [0, 8, 15, 17])
+    def test_rejects_bad_iv(self, iv_len):
+        for data in (b"", b"abc"):  # also with empty data, where the loop never runs
+            with pytest.raises(ValueError):
+                modes.ofb_encrypt(data, KEY_128, bytes(iv_len))
+            with pytest.raises(ValueError):
+                modes.ofb_decrypt(data, KEY_128, bytes(iv_len))
+
+    def test_rejects_bad_key(self):
+        with pytest.raises(ValueError):
+            modes.ofb_encrypt(b"abc", bytes(20), SP800_IV)
+
+
+class TestOFBProperties:
+    """The keystream depends only on key and IV, never on the data."""
+
+    def test_keystream_independent_of_plaintext(self):
+        # C = P xor O for any P: the same O for every message under one (key, IV).
+        rng = random.Random(22)
+        keystream = modes.ofb_encrypt(bytes(40), KEY_128, SP800_IV)
+        for _ in range(5):
+            p = random_bytes(rng, 40)
+            assert modes.ofb_encrypt(p, KEY_128, SP800_IV) == modes.xor_bytes(p, keystream)
+
+    def test_iv_reuse_leaks_xor_of_plaintexts(self):
+        p1 = b"OFB with a reused IV is a two-time pad."
+        p2 = b"so is CTR with a reused counter block!!"
+        c1 = modes.ofb_encrypt(p1, KEY_128, SP800_IV)
+        c2 = modes.ofb_encrypt(p2, KEY_128, SP800_IV)
+        assert modes.xor_bytes(c1, c2) == modes.xor_bytes(p1, p2)
+
+    @pytest.mark.parametrize("bit", [0, 9, 200, 511])
+    def test_bit_flip_flips_exactly_that_bit(self, bit):
+        ct = modes.ofb_encrypt(SP800_PLAINTEXT, KEY_128, SP800_IV)
+        pt = modes.ofb_decrypt(flip_bit(ct, bit), KEY_128, SP800_IV)
+        assert pt == flip_bit(SP800_PLAINTEXT, bit)

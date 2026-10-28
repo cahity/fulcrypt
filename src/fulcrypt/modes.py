@@ -6,8 +6,10 @@ Design decisions:
 - Padding is a separate layer. ECB and CBC take block-aligned data and reject anything
   else, as SP 800-38A defines them; callers pad explicitly: cbc_encrypt(pad(m), key, iv).
   This keeps the NIST test vectors (which have no padding) usable directly.
-- The IV is passed in explicitly, so fixed test vectors work. encrypt_message() generates
-  a random IV and prepends it to the ciphertext.
+- CTR and OFB are stream modes: they XOR the data with a keystream, so they take data of
+  any length and need no padding. Encryption and decryption are the same operation.
+- The IV / counter block is passed in explicitly, so fixed test vectors work.
+  encrypt_message() generates a random IV and prepends it to the ciphertext.
 """
 
 import os
@@ -20,7 +22,7 @@ BLOCK_SIZE = 16
 def xor_bytes(a: bytes, b: bytes) -> bytes:
     """XOR two byte strings of equal length."""
     if len(a) != len(b):
-        raise ValueError(f"Byte sizes to be XOR'd should be same, you gave {len(a)} and {len(b)}.")
+        raise ValueError(f"Byte strings must have equal length, got {len(a)} and {len(b)}.")
 
     return bytes(x ^ y for x, y in zip(a, b, strict=True))
 
@@ -28,12 +30,24 @@ def xor_bytes(a: bytes, b: bytes) -> bytes:
 def split_blocks(data: bytes, block_size: int = BLOCK_SIZE) -> list[bytes]:
     """Split block-aligned data into blocks."""
     if block_size < 1:
-        raise ValueError(f"Block size ({block_size}) should be positive.")
+        raise ValueError(f"Block size must be positive, got {block_size}.")
     block_cnt, rem = divmod(len(data), block_size)
     if rem != 0:
         raise ValueError(
-            f"Data length ({len(data)}) should be multiple of block size ({block_size})."
+            f"Data length ({len(data)}) must be a multiple of the block size ({block_size})."
         )
+
+    return [bytes(data[i * block_size : (i + 1) * block_size]) for i in range(block_cnt)]
+
+
+def split_blocks_unaligned(data: bytes, block_size: int = BLOCK_SIZE) -> list[bytes]:
+    """Split data of any length into blocks; the last block may be shorter."""
+    if block_size < 1:
+        raise ValueError(f"Block size must be positive, got {block_size}.")
+    block_cnt, rem = divmod(len(data), block_size)
+
+    if rem != 0:
+        block_cnt += 1
 
     return [bytes(data[i * block_size : (i + 1) * block_size]) for i in range(block_cnt)]
 
@@ -80,7 +94,7 @@ def repeated_blocks(data: bytes, block_size: int = BLOCK_SIZE) -> int:
 def cbc_encrypt(plaintext: bytes, key: bytes, iv: bytes) -> bytes:
     """Encrypt block-aligned data in CBC mode with the given IV."""
     if len(iv) != BLOCK_SIZE:
-        raise ValueError(f"IV must be exactly {BLOCK_SIZE} bytes.")
+        raise ValueError(f"IV must be exactly {BLOCK_SIZE} bytes, got {len(iv)}.")
 
     blocks = split_blocks(plaintext, BLOCK_SIZE)
 
@@ -96,7 +110,7 @@ def cbc_encrypt(plaintext: bytes, key: bytes, iv: bytes) -> bytes:
 def cbc_decrypt(ciphertext: bytes, key: bytes, iv: bytes) -> bytes:
     """Decrypt block-aligned data in CBC mode with the given IV."""
     if len(iv) != BLOCK_SIZE:
-        raise ValueError(f"IV must be exactly {BLOCK_SIZE} bytes.")
+        raise ValueError(f"IV must be exactly {BLOCK_SIZE} bytes, got {len(iv)}.")
 
     blocks = split_blocks(ciphertext, BLOCK_SIZE)
     blocks = [iv] + blocks
@@ -119,7 +133,9 @@ def encrypt_message(message: bytes, key: bytes) -> bytes:
 def decrypt_message(data: bytes, key: bytes) -> bytes:
     """Split off the IV, CBC-decrypt and unpad; inverse of encrypt_message."""
     if len(data) % BLOCK_SIZE != 0 or len(data) <= BLOCK_SIZE:
-        raise ValueError(f"Invalid data size to decrypt at {len(data)} bytes.")
+        raise ValueError(
+            f"Data must be an IV plus at least one {BLOCK_SIZE}-byte block, got {len(data)} bytes."
+        )
 
     iv = data[:BLOCK_SIZE]
     ciphertext = data[BLOCK_SIZE:]
@@ -127,3 +143,69 @@ def decrypt_message(data: bytes, key: bytes) -> bytes:
     msg = unpad(msg_pad, BLOCK_SIZE)
 
     return msg
+
+
+def inc_counter(block: bytes, bits: int = 128) -> bytes:
+    """Increment the low `bits` bits of a counter block mod 2^bits; the rest stays unchanged."""
+    if len(block) != BLOCK_SIZE:
+        raise ValueError(f"Counter block must be exactly {BLOCK_SIZE} bytes, got {len(block)}.")
+    if not (1 <= bits <= 8 * BLOCK_SIZE):
+        raise ValueError(f"Counter bits must be between 1 and {8 * BLOCK_SIZE}, got {bits}.")
+
+    qbit, rbit = divmod(bits, 8)
+    byte_len = qbit + 1
+    new_block = bytearray(1) + bytearray(block)
+
+    inc_int = int.from_bytes(new_block[-byte_len:], byteorder="big") + 1
+    inc_int_mod = inc_int & ((1 << bits) - 1)
+    inc_bytes = inc_int_mod.to_bytes(byte_len, byteorder="big")
+
+    new_block[len(new_block) - byte_len + 1 :] = inc_bytes[1:]
+    low = (1 << rbit) - 1
+    new_block[-byte_len] = (new_block[-byte_len] & ~low) | (inc_bytes[0] & low)
+
+    return bytes(new_block[1:])
+
+
+def ctr_encrypt(data: bytes, key: bytes, counter_block: bytes, counter_bits: int = 128) -> bytes:
+    """Encrypt data of any length in CTR mode, starting from the given counter block."""
+    if len(counter_block) != BLOCK_SIZE:
+        raise ValueError(
+            f"Counter block must be exactly {BLOCK_SIZE} bytes, got {len(counter_block)}."
+        )
+
+    blocks = split_blocks_unaligned(data, BLOCK_SIZE)
+
+    iv_ctr = counter_block
+    ciphertext = []
+    for block in blocks:
+        ciphertext.append(xor_bytes(block, encrypt_block(iv_ctr, key)[: len(block)]))
+        iv_ctr = inc_counter(iv_ctr, counter_bits)
+
+    return b"".join(ciphertext)
+
+
+def ctr_decrypt(data: bytes, key: bytes, counter_block: bytes, counter_bits: int = 128) -> bytes:
+    """Decrypt data in CTR mode; the same operation as ctr_encrypt."""
+    return ctr_encrypt(data, key, counter_block, counter_bits)
+
+
+def ofb_encrypt(plaintext: bytes, key: bytes, iv: bytes) -> bytes:
+    """Encrypt data of any length in OFB mode with the given IV."""
+    if len(iv) != BLOCK_SIZE:
+        raise ValueError(f"IV must be exactly {BLOCK_SIZE} bytes, got {len(iv)}.")
+
+    blocks = split_blocks_unaligned(plaintext, BLOCK_SIZE)
+
+    out = iv
+    ciphertext = []
+    for block in blocks:
+        out = encrypt_block(out, key)
+        ciphertext.append(xor_bytes(block, out[: len(block)]))
+
+    return b"".join(ciphertext)
+
+
+def ofb_decrypt(ciphertext: bytes, key: bytes, iv: bytes) -> bytes:
+    """Decrypt data in OFB mode; the same operation as ofb_encrypt."""
+    return ofb_encrypt(ciphertext, key, iv)
