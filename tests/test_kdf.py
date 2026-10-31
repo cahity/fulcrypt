@@ -136,3 +136,102 @@ class TestHkdf:
     def test_rejects_bad_length(self):
         with pytest.raises(ValueError):
             kdf.hkdf(b"ikm", b"salt", b"info", 255 * 32 + 1)
+
+
+# =============================================================================
+# Step 11: PBKDF2-HMAC-SHA256  (RFC 8018 section 5.2, test vector RFC 7914 section 11)
+# =============================================================================
+# Our HMAC takes ~0.4 ms, so 1000 iterations cost ~0.4 s per 32-byte block. The official
+# vectors with 80,000+ iterations would take minutes; small counts against hashlib instead.
+
+
+def int_be(i):
+    return i.to_bytes(4, "big")
+
+
+class TestPbkdf2Sha256:
+    def test_rfc7914(self):
+        expected = (
+            "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc"
+            "49ca9cccf179b645991664b39d77ef317c71b845b1e30bd509112041d3a19783"
+        )
+        assert kdf.pbkdf2_sha256(b"passwd", b"salt", 1, 64).hex() == expected
+
+    @pytest.mark.parametrize("iterations", [1, 2, 3, 10, 100])
+    def test_matches_hashlib_iterations(self, iterations):
+        expected = hashlib.pbkdf2_hmac("sha256", b"password", b"salt", iterations, 32)
+        assert kdf.pbkdf2_sha256(b"password", b"salt", iterations, 32) == expected
+
+    # Part of a block, one block, a block and a bit, several blocks.
+    @pytest.mark.parametrize("length", [1, 20, 31, 32, 33, 64, 65, 100])
+    def test_matches_hashlib_lengths(self, length):
+        expected = hashlib.pbkdf2_hmac("sha256", b"password", b"salt", 2, length)
+        assert kdf.pbkdf2_sha256(b"password", b"salt", 2, length) == expected
+
+    @pytest.mark.timeout(5)  # 1000 HMACs in pure Python: ~0.4 s, more on a slow machine
+    def test_thousand_iterations(self):
+        expected = hashlib.pbkdf2_hmac("sha256", b"correct horse", b"NaCl", 1000, 32)
+        assert kdf.pbkdf2_sha256(b"correct horse", b"NaCl", 1000, 32) == expected
+
+    def test_one_iteration_is_one_hmac(self):
+        # U1 = HMAC(P, S || INT(1)), with INT(i) a 4-byte big-endian block index.
+        assert kdf.pbkdf2_sha256(b"pw", b"salt", 1, 32) == mac.hmac_sha256(
+            b"pw", b"salt" + int_be(1)
+        )
+
+    def test_iterations_are_xored(self):
+        # T1 = U1 xor U2 xor U3, with U2 = HMAC(P, U1) and U3 = HMAC(P, U2).
+        u1 = mac.hmac_sha256(b"pw", b"salt" + int_be(1))
+        u2 = mac.hmac_sha256(b"pw", u1)
+        u3 = mac.hmac_sha256(b"pw", u2)
+        expected = bytes(a ^ b ^ c for a, b, c in zip(u1, u2, u3, strict=True))
+        assert kdf.pbkdf2_sha256(b"pw", b"salt", 3, 32) == expected
+
+    def test_second_block_uses_index_2(self):
+        # Every output block restarts from the salt with its own index; blocks don't chain.
+        out = kdf.pbkdf2_sha256(b"pw", b"salt", 1, 64)
+        assert out[32:] == mac.hmac_sha256(b"pw", b"salt" + int_be(2))
+
+    def test_shorter_output_is_a_prefix(self):
+        long = kdf.pbkdf2_sha256(b"pw", b"salt", 2, 80)
+        for length in (0, 1, 32, 50, 79):
+            assert kdf.pbkdf2_sha256(b"pw", b"salt", 2, length) == long[:length]
+
+    def test_zero_length(self):
+        assert kdf.pbkdf2_sha256(b"pw", b"salt", 1, 0) == b""
+
+    def test_empty_password_and_salt(self):
+        expected = hashlib.pbkdf2_hmac("sha256", b"", b"", 2, 32)
+        assert kdf.pbkdf2_sha256(b"", b"", 2, 32) == expected
+
+    def test_long_password(self):
+        # Longer than the HMAC block: hmac_sha256 hashes it first.
+        pw = b"p" * 100
+        assert kdf.pbkdf2_sha256(pw, b"salt", 2, 32) == hashlib.pbkdf2_hmac(
+            "sha256", pw, b"salt", 2, 32
+        )
+
+    def test_every_input_matters(self):
+        base = kdf.pbkdf2_sha256(b"pw", b"salt", 2, 32)
+        assert kdf.pbkdf2_sha256(b"pW", b"salt", 2, 32) != base
+        assert kdf.pbkdf2_sha256(b"pw", b"salT", 2, 32) != base
+        assert kdf.pbkdf2_sha256(b"pw", b"salt", 3, 32) != base
+
+    def test_returns_bytes(self):
+        out = kdf.pbkdf2_sha256(b"pw", b"salt", 1, 40)
+        assert type(out) is bytes
+        assert len(out) == 40
+
+    def test_accepts_bytearray(self):
+        assert kdf.pbkdf2_sha256(bytearray(b"pw"), bytearray(b"salt"), 2, 32) == (
+            kdf.pbkdf2_sha256(b"pw", b"salt", 2, 32)
+        )
+
+    @pytest.mark.parametrize("iterations", [0, -1])
+    def test_rejects_bad_iterations(self, iterations):
+        with pytest.raises(ValueError):
+            kdf.pbkdf2_sha256(b"pw", b"salt", iterations, 32)
+
+    def test_rejects_negative_length(self):
+        with pytest.raises(ValueError):
+            kdf.pbkdf2_sha256(b"pw", b"salt", 1, -1)
