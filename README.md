@@ -18,10 +18,10 @@ Cryptography primitives implemented from scratch, to learn how they work.
 | `fulcrypt.aes` | AES (FIPS-197) with 128, 192 and 256-bit keys, built on GF(2⁸) field elements |
 | `fulcrypt.modes` | PKCS#7 padding, ECB, CBC, CTR and OFB modes (NIST SP 800-38A) |
 | `fulcrypt.hashes` | SHA-256 and SHA-224 (FIPS 180-4), and the length extension attack on SHA-256 |
-| `fulcrypt.mac` | HMAC-SHA256 (FIPS 198-1), constant-time tag comparison |
+| `fulcrypt.mac` | HMAC-SHA256 (FIPS 198-1), constant-time tag comparison, CBC-MAC and its forgery, CMAC (NIST SP 800-38B) |
 
 Every function is checked against the published test vectors of its standard (FIPS-197,
-NIST SP 800-38A, FIPS 180-4, RFC 4231).
+NIST SP 800-38A, FIPS 180-4, RFC 4231, RFC 4493).
 
 ## Usage
 
