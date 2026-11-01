@@ -20,10 +20,10 @@ Cryptography primitives implemented from scratch, to learn how they work.
 | `fulcrypt.hashes` | SHA-256 and SHA-224 (FIPS 180-4), and the length extension attack on SHA-256 |
 | `fulcrypt.mac` | HMAC-SHA256 (FIPS 198-1), constant-time tag comparison, CBC-MAC and its forgery, CMAC (NIST SP 800-38B) |
 | `fulcrypt.kdf` | HKDF-SHA256 (RFC 5869), PBKDF2-HMAC-SHA256 (RFC 8018) |
-| `fulcrypt.aead` | Encrypt-then-MAC: AES-CTR and HMAC-SHA256 with HKDF-derived keys |
+| `fulcrypt.aead` | Encrypt-then-MAC (AES-CTR + HMAC-SHA256, HKDF-derived keys); AES-GCM (NIST SP 800-38D): the GF(2¹²⁸) field, GHASH, encryption and decryption |
 
 Every function is checked against the published test vectors of its standard (FIPS-197,
-NIST SP 800-38A, FIPS 180-4, RFC 4231, RFC 4493, RFC 5869, RFC 7914).
+NIST SP 800-38A, FIPS 180-4, RFC 4231, RFC 4493, RFC 5869, RFC 7914, NIST SP 800-38D).
 
 ## Usage
 
@@ -62,6 +62,16 @@ Hashing and HMAC:
 >>> tag = mac.hmac_sha256(b"key", b"message")
 >>> mac.hmac_sha256_verify(b"key", b"message", tag)
 True
+```
+
+AES-GCM:
+
+```python
+>>> from fulcrypt import aead
+>>> key, iv = bytes(16), bytes(12)          # never reuse an IV under the same key
+>>> ciphertext, tag = aead.gcm_encrypt(key, iv, b"attack at dawn", aad=b"header")
+>>> aead.gcm_decrypt(key, iv, ciphertext, tag, aad=b"header")
+b'attack at dawn'
 ```
 
 More walk-throughs are in [`examples/example.py`](examples/example.py).

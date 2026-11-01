@@ -1,4 +1,4 @@
-"""Authenticated encryption: Encrypt-then-MAC (AES-CTR + HMAC-SHA256), and GCM building blocks.
+"""Authenticated encryption: Encrypt-then-MAC (AES-CTR + HMAC-SHA256) and AES-GCM (SP 800-38D).
 
 Design decisions:
 - One master key; HKDF derives independent encryption and MAC keys (different info strings).
@@ -15,11 +15,12 @@ import os
 from typing import Any
 
 from fulcrypt.aes import AES_BLOCK_SIZE
+from fulcrypt.aes import encrypt_block as aes_encrypt_block
 from fulcrypt.elements import GF2n
 from fulcrypt.hashes import SHA256_DIGEST_SIZE
 from fulcrypt.kdf import hkdf
-from fulcrypt.mac import hmac_sha256, hmac_sha256_verify
-from fulcrypt.modes import ctr_decrypt, ctr_encrypt, xor_bytes
+from fulcrypt.mac import constant_time_equal, hmac_sha256, hmac_sha256_verify
+from fulcrypt.modes import ctr_decrypt, ctr_encrypt, inc_counter, xor_bytes
 
 ETM_ENC_KEY_SIZE = 16  # AES-128
 ETM_MAC_KEY_SIZE = SHA256_DIGEST_SIZE
@@ -32,6 +33,8 @@ GCM_BITS = GCM_FIELD.modulus.degree  # 128
 GCM_BLOCK_SIZE = GCM_BITS // 8  # 16 bytes
 # GCM is defined only for 128-bit block ciphers: a field element is exactly one AES block.
 assert GCM_BLOCK_SIZE == AES_BLOCK_SIZE
+GCM_COUNTER_BITS = 32  # inc32: only the last 32 bits of the counter block count
+GCM_IV_SIZE = GCM_BLOCK_SIZE - GCM_COUNTER_BITS // 8  # 96-bit IV, the only size supported here
 
 
 def etm_derive_keys(key: bytes) -> tuple[bytes, bytes]:
@@ -130,3 +133,37 @@ def ghash(h: bytes, aad: bytes, ciphertext: bytes) -> bytes:
         prev = gcm_to_block(cgcm)
 
     return prev
+
+
+def _gcm_setup(key: bytes, iv: bytes) -> tuple[bytes, bytes]:
+    """Check the 96-bit IV; return (J0 = IV || 0^31 || 1, H = AES(K, 0^128))."""
+    if len(iv) != GCM_IV_SIZE:
+        raise ValueError(f"IV must be exactly {GCM_IV_SIZE} bytes, got {len(iv)}.")
+
+    j0 = bytes(iv) + (1).to_bytes(GCM_COUNTER_BITS // 8, "big")
+    h = aes_encrypt_block(b"\x00" * AES_BLOCK_SIZE, key)
+
+    return (j0, h)
+
+
+def gcm_encrypt(key: bytes, iv: bytes, plaintext: bytes, aad: bytes = b"") -> tuple[bytes, bytes]:
+    """AES-GCM encrypt with a 96-bit IV; return (ciphertext, tag). AAD is authenticated only."""
+    j0, h = _gcm_setup(key, iv)
+
+    ciphertext = ctr_encrypt(plaintext, key, inc_counter(j0, GCM_COUNTER_BITS), GCM_COUNTER_BITS)
+    tag = xor_bytes(aes_encrypt_block(j0, key), ghash(h, aad, ciphertext))
+
+    return (ciphertext, tag)
+
+
+def gcm_decrypt(key: bytes, iv: bytes, ciphertext: bytes, tag: bytes, aad: bytes = b"") -> bytes:
+    """Check the tag in constant time, then decrypt; ValueError if authentication fails."""
+    j0, h = _gcm_setup(key, iv)
+
+    ntag = xor_bytes(aes_encrypt_block(j0, key), ghash(h, aad, ciphertext))
+
+    if not constant_time_equal(tag, ntag):
+        raise ValueError("Authentication failed: wrong key, or the data was modified.")
+
+    plaintext = ctr_decrypt(ciphertext, key, inc_counter(j0, GCM_COUNTER_BITS), GCM_COUNTER_BITS)
+    return plaintext

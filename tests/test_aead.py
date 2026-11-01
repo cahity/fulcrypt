@@ -354,3 +354,261 @@ class TestGhash:
     def test_rejects_wrong_h_size(self, length):
         with pytest.raises(ValueError):
             aead.ghash(bytes(length), b"", b"")
+
+
+# =============================================================================
+# Step 15: AES-GCM  (SP 800-38D section 7; vectors from the GCM spec, McGrew & Viega)
+# =============================================================================
+# 96-bit IV only: J0 = IV || 0^31 || 1. CTR from inc32(J0); tag T = AES(K, J0) xor GHASH(H, A, C).
+
+GCM_K = "feffe9928665731c6d6a8f9467308308"
+GCM_P = blk(
+    "d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a72"
+    "1c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b391aafd255"
+)
+GCM_IV = blk("cafebabefacedbaddecaf888")
+GCM_A = A_TC4
+
+
+def gcm_case(name, key_hex, plaintext, iv, aad, c_hex, t_hex):
+    return pytest.param(blk(key_hex), iv, plaintext, aad, blk(c_hex), blk(t_hex), id=name)
+
+
+GCM_SPEC = [
+    # AES-128
+    gcm_case("TC1", "00" * 16, b"", bytes(12), b"", "", "58e2fccefa7e3061367f1d57a4e7455a"),
+    gcm_case(
+        "TC2",
+        "00" * 16,
+        bytes(16),
+        bytes(12),
+        b"",
+        "0388dace60b6a392f328c2b971b2fe78",
+        "ab6e47d42cec13bdf53a67b21257bddf",
+    ),
+    gcm_case("TC3", GCM_K, GCM_P, GCM_IV, b"", C_TC3.hex(), "4d5c2af327cd64a62cf35abd2ba6fab4"),
+    gcm_case(
+        "TC4",
+        GCM_K,
+        GCM_P[:60],
+        GCM_IV,
+        GCM_A,
+        C_TC3[:60].hex(),
+        "5bc94fbc3221a5db94fae95ae7121a47",
+    ),
+    # AES-192
+    gcm_case("TC7", "00" * 24, b"", bytes(12), b"", "", "cd33b28ac773f74ba00ed1f312572435"),
+    gcm_case(
+        "TC8",
+        "00" * 24,
+        bytes(16),
+        bytes(12),
+        b"",
+        "98e7247c07f0fe411c267e4384b0f600",
+        "2ff58d80033927ab8ef4d4587514f0fb",
+    ),
+    gcm_case(
+        "TC9",
+        GCM_K + GCM_K[:16],
+        GCM_P,
+        GCM_IV,
+        b"",
+        "3980ca0b3c00e841eb06fac4872a2757859e1ceaa6efd984628593b40ca1e19c"
+        "7d773d00c144c525ac619d18c84a3f4718e2448b2fe324d9ccda2710acade256",
+        "9924a7c8587336bfb118024db8674a14",
+    ),
+    gcm_case(
+        "TC10",
+        GCM_K + GCM_K[:16],
+        GCM_P[:60],
+        GCM_IV,
+        GCM_A,
+        "3980ca0b3c00e841eb06fac4872a2757859e1ceaa6efd984628593b40ca1e19c"
+        "7d773d00c144c525ac619d18c84a3f4718e2448b2fe324d9ccda2710",
+        "2519498e80f1478f37ba55bd6d27618c",
+    ),
+    # AES-256
+    gcm_case("TC13", "00" * 32, b"", bytes(12), b"", "", "530f8afbc74536b9a963b4f1c4cb738b"),
+    gcm_case(
+        "TC14",
+        "00" * 32,
+        bytes(16),
+        bytes(12),
+        b"",
+        "cea7403d4d606b6e074ec5d3baf39d18",
+        "d0d1c8a799996bf0265b98b5d48ab919",
+    ),
+    gcm_case(
+        "TC15",
+        GCM_K * 2,
+        GCM_P,
+        GCM_IV,
+        b"",
+        "522dc1f099567d07f47f37a32a84427d643a8cdcbfe5c0c97598a2bd2555d1aa"
+        "8cb08e48590dbb3da7b08b1056828838c5f61e6393ba7a0abcc9f662898015ad",
+        "b094dac5d93471bdec1a502270e3cc6c",
+    ),
+    gcm_case(
+        "TC16",
+        GCM_K * 2,
+        GCM_P[:60],
+        GCM_IV,
+        GCM_A,
+        "522dc1f099567d07f47f37a32a84427d643a8cdcbfe5c0c97598a2bd2555d1aa"
+        "8cb08e48590dbb3da7b08b1056828838c5f61e6393ba7a0abcc9f662",
+        "76fc6ece0f4e1768cddf8853bb2d551b",
+    ),
+]
+
+GK = blk(GCM_K)
+
+
+class TestGcmEncrypt:
+    @pytest.mark.parametrize("key, iv, plaintext, aad, ciphertext, tag", GCM_SPEC)
+    def test_gcm_spec(self, key, iv, plaintext, aad, ciphertext, tag):
+        assert aead.gcm_encrypt(key, iv, plaintext, aad) == (ciphertext, tag)
+
+    def test_ciphertext_is_ctr_from_inc32_j0(self):
+        # Keystream block 1 is AES(K, IV || 00000002): J0 = IV || 00000001 is kept for the tag.
+        j0 = GCM_IV + (1).to_bytes(4, "big")
+        start = GCM_IV + (2).to_bytes(4, "big")
+        ciphertext, _ = aead.gcm_encrypt(GK, GCM_IV, GCM_P)
+        assert ciphertext == modes.ctr_encrypt(GCM_P, GK, start, counter_bits=32)
+        assert ciphertext[:16] != modes.ctr_encrypt(GCM_P[:16], GK, j0, counter_bits=32)
+
+    def test_tag_is_ghash_masked_with_aes_j0(self):
+        ciphertext, tag = aead.gcm_encrypt(GK, GCM_IV, GCM_P[:60], GCM_A)
+        h = aes.encrypt_block(bytes(16), GK)
+        s = aes.encrypt_block(GCM_IV + (1).to_bytes(4, "big"), GK)
+        expected = bytes(x ^ y for x, y in zip(s, aead.ghash(h, GCM_A, ciphertext), strict=True))
+        assert tag == expected
+
+    def test_aad_is_authenticated_not_encrypted(self):
+        c1, t1 = aead.gcm_encrypt(GK, GCM_IV, b"hello", b"header one")
+        c2, t2 = aead.gcm_encrypt(GK, GCM_IV, b"hello", b"header two")
+        assert c1 == c2
+        assert t1 != t2
+
+    def test_default_aad_is_empty(self):
+        assert aead.gcm_encrypt(GK, GCM_IV, b"hi") == aead.gcm_encrypt(GK, GCM_IV, b"hi", b"")
+
+    def test_aad_only_is_gmac(self):
+        # No plaintext: an authentication tag over the AAD alone.
+        ciphertext, tag = aead.gcm_encrypt(GK, GCM_IV, b"", GCM_A)
+        assert ciphertext == b""
+        assert len(tag) == 16
+
+    def test_nonce_reuse_leaks_xor_of_plaintexts(self):
+        # Why an IV must never repeat under one key: it's CTR underneath.
+        p1, p2 = b"attack at dawn!!", b"retreat at dusk!"
+        c1, _ = aead.gcm_encrypt(GK, GCM_IV, p1)
+        c2, _ = aead.gcm_encrypt(GK, GCM_IV, p2)
+        assert bytes(a ^ b for a, b in zip(c1, c2, strict=True)) == bytes(
+            a ^ b for a, b in zip(p1, p2, strict=True)
+        )
+
+    def test_returns_bytes_pair(self):
+        ciphertext, tag = aead.gcm_encrypt(GK, GCM_IV, b"abc")
+        assert type(ciphertext) is bytes and type(tag) is bytes
+        assert len(ciphertext) == 3 and len(tag) == 16
+
+    def test_accepts_bytearray(self):
+        args = (GK, GCM_IV, GCM_P[:60], GCM_A)
+        assert aead.gcm_encrypt(*(bytearray(a) for a in args)) == aead.gcm_encrypt(*args)
+
+    @pytest.mark.parametrize("iv_length", [0, 8, 11, 13, 16])
+    def test_rejects_non_96_bit_iv(self, iv_length):
+        with pytest.raises(ValueError):
+            aead.gcm_encrypt(GK, bytes(iv_length), b"abc")
+
+
+class TestGcmDecrypt:
+    @pytest.mark.parametrize("key, iv, plaintext, aad, ciphertext, tag", GCM_SPEC)
+    def test_gcm_spec(self, key, iv, plaintext, aad, ciphertext, tag):
+        assert aead.gcm_decrypt(key, iv, ciphertext, tag, aad) == plaintext
+
+    @pytest.mark.parametrize(
+        "p_len, a_len", [(0, 0), (1, 0), (15, 3), (16, 16), (17, 20), (100, 0)]
+    )
+    def test_round_trip(self, p_len, a_len):
+        p, a = pattern(p_len, 7), pattern(a_len, 5)
+        ciphertext, tag = aead.gcm_encrypt(GK, GCM_IV, p, a)
+        assert aead.gcm_decrypt(GK, GCM_IV, ciphertext, tag, a) == p
+
+    def test_returns_bytes(self):
+        ciphertext, tag = aead.gcm_encrypt(GK, GCM_IV, b"abc")
+        assert type(aead.gcm_decrypt(GK, GCM_IV, ciphertext, tag)) is bytes
+
+    def test_accepts_bytearray(self):
+        ciphertext, tag = aead.gcm_encrypt(GK, GCM_IV, b"abc", b"hdr")
+        args = (GK, GCM_IV, ciphertext, tag, b"hdr")
+        assert aead.gcm_decrypt(*(bytearray(a) for a in args)) == b"abc"
+
+    @pytest.mark.parametrize("iv_length", [0, 8, 16])
+    def test_rejects_non_96_bit_iv(self, iv_length):
+        ciphertext, tag = aead.gcm_encrypt(GK, GCM_IV, b"abc")
+        with pytest.raises(ValueError):
+            aead.gcm_decrypt(GK, bytes(iv_length), ciphertext, tag)
+
+
+class TestGcmRejectsTampering:
+    P = b"amount=100&to=bob"
+    A = b"msg-id: 42"
+
+    def sealed(self):
+        ciphertext, tag = aead.gcm_encrypt(GK, GCM_IV, self.P, self.A)
+        return ciphertext, tag
+
+    @pytest.mark.parametrize("i", [0, 11])
+    def test_flipped_iv(self, i):
+        ciphertext, tag = self.sealed()
+        with pytest.raises(ValueError):
+            aead.gcm_decrypt(GK, flip(GCM_IV, i), ciphertext, tag, self.A)
+
+    @pytest.mark.parametrize("i", [0, 9])
+    def test_flipped_aad(self, i):
+        ciphertext, tag = self.sealed()
+        with pytest.raises(ValueError):
+            aead.gcm_decrypt(GK, GCM_IV, ciphertext, tag, flip(self.A, i))
+
+    def test_dropped_aad(self):
+        ciphertext, tag = self.sealed()
+        with pytest.raises(ValueError):
+            aead.gcm_decrypt(GK, GCM_IV, ciphertext, tag)
+
+    @pytest.mark.parametrize("i", [0, 7, 16])
+    def test_flipped_ciphertext(self, i):
+        ciphertext, tag = self.sealed()
+        with pytest.raises(ValueError):
+            aead.gcm_decrypt(GK, GCM_IV, flip(ciphertext, i), tag, self.A)
+
+    def test_ctr_malleability_is_caught(self):
+        # "100" -> "900" by XORing the ciphertext, as in the Encrypt-then-MAC tests.
+        ciphertext, tag = self.sealed()
+        i = self.P.index(b"1")
+        forged = bytearray(ciphertext)
+        forged[i] ^= ord("1") ^ ord("9")
+        with pytest.raises(ValueError):
+            aead.gcm_decrypt(GK, GCM_IV, bytes(forged), tag, self.A)
+
+    @pytest.mark.parametrize("i", [0, 15])
+    def test_flipped_tag(self, i):
+        ciphertext, tag = self.sealed()
+        with pytest.raises(ValueError):
+            aead.gcm_decrypt(GK, GCM_IV, ciphertext, flip(tag, i), self.A)
+
+    @pytest.mark.parametrize("length", [0, 12, 15])
+    def test_truncated_tag(self, length):
+        ciphertext, tag = self.sealed()
+        with pytest.raises(ValueError):
+            aead.gcm_decrypt(GK, GCM_IV, ciphertext, tag[:length], self.A)
+
+    def test_truncated_ciphertext(self):
+        ciphertext, tag = self.sealed()
+        with pytest.raises(ValueError):
+            aead.gcm_decrypt(GK, GCM_IV, ciphertext[:-1], tag, self.A)
+
+    def test_wrong_key(self):
+        ciphertext, tag = self.sealed()
+        with pytest.raises(ValueError):
+            aead.gcm_decrypt(bytes(16), GCM_IV, ciphertext, tag, self.A)
