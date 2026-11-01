@@ -136,7 +136,7 @@ class TestSha224Constants:
         assert type(hashes.SHA224_H0) is tuple and len(hashes.SHA224_H0) == 8
 
     def test_all_32_bit(self):
-        assert all(0 <= w <= hashes.MASK32 for w in hashes.SHA224_H0)
+        assert all(0 <= w <= hashes.MASK_32 for w in hashes.SHA224_H0)
 
 
 class TestSha256Compress:

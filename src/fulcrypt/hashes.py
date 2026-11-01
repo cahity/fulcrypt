@@ -2,7 +2,7 @@
 
 Design decisions:
 - Words are plain Python ints. Python ints never overflow, so every addition and shift
-  is masked with MASK32 to stay within 32 bits.
+  is masked with MASK_32 to stay within 32 bits.
 - The constants (H0, K) are derived from the primes, not copied, and checked against
   the published values in the tests.
 - Padding and compression are separate public functions, so each can be tested on its
@@ -11,7 +11,7 @@ Design decisions:
 
 import math
 
-MASK32 = 0xFFFFFFFF
+MASK_32 = (1 << 32) - 1
 SHA256_WORD_SIZE = 4  # bytes per 32-bit word
 SHA256_STATE_WORDS = 8
 SHA256_ROUNDS = 64
@@ -60,10 +60,10 @@ def sha2_constants() -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]
     h0224: list[int] = []
     for p in primes:
         if len(h0) < SHA256_STATE_WORDS:
-            h0.append(math.isqrt(p << 64) & MASK32)
-        k.append(icbrt(p << 96) & MASK32)
+            h0.append(math.isqrt(p << 64) & MASK_32)
+        k.append(icbrt(p << 96) & MASK_32)
         if 8 < len(k) < 17:
-            h0224.append(math.isqrt(p << 128) & MASK32)
+            h0224.append(math.isqrt(p << 128) & MASK_32)
 
     return tuple(h0), tuple(k), tuple(h0224)
 
@@ -91,7 +91,7 @@ def sha256_compress(state: tuple[int, ...], block: bytes) -> tuple[int, ...]:
 
     def right_rot(n, k):
         """Rotate a 32-bit word right by k bits."""
-        return ((n >> k) | (n << (8 * SHA256_WORD_SIZE - k))) & MASK32
+        return ((n >> k) | (n << (8 * SHA256_WORD_SIZE - k))) & MASK_32
 
     w = SHA256_WORD_SIZE
     words = [int.from_bytes(block[i : i + w], "big") for i in range(0, SHA256_BLOCK_SIZE, w)]
@@ -99,7 +99,7 @@ def sha256_compress(state: tuple[int, ...], block: bytes) -> tuple[int, ...]:
         n = len(words)
         s0 = right_rot(words[n - 15], 7) ^ right_rot(words[n - 15], 18) ^ (words[n - 15] >> 3)
         s1 = right_rot(words[n - 2], 17) ^ right_rot(words[n - 2], 19) ^ (words[n - 2] >> 10)
-        new_word = (s1 + words[n - 7] + s0 + words[n - 16]) & MASK32
+        new_word = (s1 + words[n - 7] + s0 + words[n - 16]) & MASK_32
         words.append(new_word)
 
     a, b, c, d, e, f, g, h = state
@@ -107,23 +107,23 @@ def sha256_compress(state: tuple[int, ...], block: bytes) -> tuple[int, ...]:
     for t in range(SHA256_ROUNDS):
         s1 = right_rot(e, 6) ^ right_rot(e, 11) ^ right_rot(e, 25)
         ch = (e & f) ^ ((~e) & g)
-        temp1 = h + s1 + ch + SHA256_K[t] + words[t] & MASK32
+        temp1 = h + s1 + ch + SHA256_K[t] + words[t] & MASK_32
         s0 = right_rot(a, 2) ^ right_rot(a, 13) ^ right_rot(a, 22)
         maj = (a & b) ^ (a & c) ^ (b & c)
-        temp2 = s0 + maj & MASK32
+        temp2 = s0 + maj & MASK_32
 
         h = g
         g = f
         f = e
-        e = (d + temp1) & MASK32
+        e = (d + temp1) & MASK_32
         d = c
         c = b
         b = a
-        a = (temp1 + temp2) & MASK32
+        a = (temp1 + temp2) & MASK_32
 
     new_state = []
     for olds, news in zip(state, (a, b, c, d, e, f, g, h), strict=True):
-        new_state.append((olds + news) & MASK32)
+        new_state.append((olds + news) & MASK_32)
 
     return tuple(new_state)
 

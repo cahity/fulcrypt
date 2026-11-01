@@ -18,12 +18,13 @@ Cryptography primitives implemented from scratch, to learn how they work.
 | `fulcrypt.aes` | AES (FIPS-197) with 128, 192 and 256-bit keys, built on GF(2⁸) field elements |
 | `fulcrypt.modes` | PKCS#7 padding, ECB, CBC, CTR and OFB modes (NIST SP 800-38A) |
 | `fulcrypt.hashes` | SHA-256 and SHA-224 (FIPS 180-4), and the length extension attack on SHA-256 |
+| `fulcrypt.sha3` | SHA3-224/256/384/512 and SHAKE128/256 (FIPS 202): Keccak-f[1600] step by step, and the sponge |
 | `fulcrypt.mac` | HMAC-SHA256 (FIPS 198-1), constant-time tag comparison, CBC-MAC and its forgery, CMAC (NIST SP 800-38B) |
 | `fulcrypt.kdf` | HKDF-SHA256 (RFC 5869), PBKDF2-HMAC-SHA256 (RFC 8018) |
 | `fulcrypt.aead` | Encrypt-then-MAC (AES-CTR + HMAC-SHA256, HKDF-derived keys); AES-GCM (NIST SP 800-38D): the GF(2¹²⁸) field, GHASH, encryption and decryption |
 
 Every function is checked against the published test vectors of its standard (FIPS-197,
-NIST SP 800-38A, FIPS 180-4, RFC 4231, RFC 4493, RFC 5869, RFC 7914, NIST SP 800-38D).
+NIST SP 800-38A, FIPS 180-4, FIPS 202, RFC 4231, RFC 4493, RFC 5869, RFC 7914, NIST SP 800-38D).
 
 ## Usage
 
@@ -62,6 +63,9 @@ Hashing and HMAC:
 >>> tag = mac.hmac_sha256(b"key", b"message")
 >>> mac.hmac_sha256_verify(b"key", b"message", tag)
 True
+>>> from fulcrypt import sha3
+>>> sha3.sha3_256(b"abc").hex()
+'3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532'
 ```
 
 AES-GCM:
