@@ -22,7 +22,7 @@ def random_bytes(rng, n):
 
 
 def test_block_size():
-    assert modes.BLOCK_SIZE == 16
+    assert modes.AES_BLOCK_SIZE == 16
 
 
 class TestXorBytes:

@@ -12,13 +12,15 @@ Design decisions:
 from fulcrypt.elements import GF2n
 
 Nb = 4  # Words per block
+AES_BLOCK_SIZE = 4 * Nb  # 16 bytes
+AES_KEY_SIZES = (16, 24, 32)  # AES-128 / 192 / 256
 AES = GF2n(0x11B)
 
 
 def bytes_to_state(block):
     """Convert a 16-byte block to a state, filling column by column."""
-    if len(block) != 16:
-        raise ValueError("Block must be 16 bytes long")
+    if len(block) != AES_BLOCK_SIZE:
+        raise ValueError(f"Block must be {AES_BLOCK_SIZE} bytes long")
 
     state = [[0] * 4 for _ in range(4)]
     for c in range(4):
@@ -29,7 +31,7 @@ def bytes_to_state(block):
 
 def state_to_bytes(state):
     """Convert a state back to 16 bytes, reading column by column."""
-    block = bytearray(16)
+    block = bytearray(AES_BLOCK_SIZE)
     for c in range(4):
         for r in range(4):
             block[r + (4 * c)] = state[r][c].bits
@@ -152,10 +154,8 @@ def rcon(i: int):
 
 def key_expansion(key: bytes):
     """Expand a 16, 24 or 32-byte key into Nb * (Nr + 1) round key words."""
-    if len(key) not in [16, 24, 32]:
-        raise ValueError(
-            f"Only 16, 24, and 32 byte keys are accepted in AES. Provided key is {len(key)} bytes."
-        )
+    if len(key) not in AES_KEY_SIZES:
+        raise ValueError(f"AES keys must be {AES_KEY_SIZES} bytes, got {len(key)}.")
 
     nk = len(key) // 4
     nr = 6 + nk
@@ -185,14 +185,12 @@ def key_expansion(key: bytes):
 
 def encrypt_block(block: bytes, key: bytes):
     """Encrypt one 16-byte block with AES."""
-    if len(block) != Nb * 4:
+    if len(block) != AES_BLOCK_SIZE:
         raise ValueError(
-            f"Block size to encrypt should be {Nb * 4} bytes but it is {len(block)} bytes"
+            f"Block size to encrypt should be {AES_BLOCK_SIZE} bytes but it is {len(block)} bytes"
         )
-    if len(key) not in [16, 24, 32]:
-        raise ValueError(
-            f"Only 16, 24, and 32 byte keys are accepted in AES. Provided key is {len(key)} bytes."
-        )
+    if len(key) not in AES_KEY_SIZES:
+        raise ValueError(f"AES keys must be {AES_KEY_SIZES} bytes, got {len(key)}.")
 
     nk = len(key) // 4
     nr = 6 + nk
@@ -218,14 +216,12 @@ def encrypt_block(block: bytes, key: bytes):
 
 def decrypt_block(block: bytes, key: bytes):
     """Decrypt one 16-byte block with AES."""
-    if len(block) != Nb * 4:
+    if len(block) != AES_BLOCK_SIZE:
         raise ValueError(
-            f"Block size to decrypt should be {Nb * 4} bytes but it is {len(block)} bytes"
+            f"Block size to decrypt should be {AES_BLOCK_SIZE} bytes but it is {len(block)} bytes"
         )
-    if len(key) not in [16, 24, 32]:
-        raise ValueError(
-            f"Only 16, 24, and 32 byte keys are accepted in AES. Provided key is {len(key)} bytes."
-        )
+    if len(key) not in AES_KEY_SIZES:
+        raise ValueError(f"AES keys must be {AES_KEY_SIZES} bytes, got {len(key)}.")
 
     nk = len(key) // 4
     nr = 6 + nk

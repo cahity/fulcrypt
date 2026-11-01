@@ -14,9 +14,7 @@ Design decisions:
 
 import os
 
-from fulcrypt.aes import decrypt_block, encrypt_block
-
-BLOCK_SIZE = 16
+from fulcrypt.aes import AES_BLOCK_SIZE, decrypt_block, encrypt_block
 
 
 def xor_bytes(a: bytes, b: bytes) -> bytes:
@@ -27,7 +25,7 @@ def xor_bytes(a: bytes, b: bytes) -> bytes:
     return bytes(x ^ y for x, y in zip(a, b, strict=True))
 
 
-def split_blocks(data: bytes, block_size: int = BLOCK_SIZE) -> list[bytes]:
+def split_blocks(data: bytes, block_size: int = AES_BLOCK_SIZE) -> list[bytes]:
     """Split block-aligned data into blocks."""
     if block_size < 1:
         raise ValueError(f"Block size must be positive, got {block_size}.")
@@ -40,7 +38,7 @@ def split_blocks(data: bytes, block_size: int = BLOCK_SIZE) -> list[bytes]:
     return [bytes(data[i * block_size : (i + 1) * block_size]) for i in range(block_cnt)]
 
 
-def split_blocks_unaligned(data: bytes, block_size: int = BLOCK_SIZE) -> list[bytes]:
+def split_blocks_unaligned(data: bytes, block_size: int = AES_BLOCK_SIZE) -> list[bytes]:
     """Split data of any length into blocks; the last block may be shorter."""
     if block_size < 1:
         raise ValueError(f"Block size must be positive, got {block_size}.")
@@ -52,13 +50,13 @@ def split_blocks_unaligned(data: bytes, block_size: int = BLOCK_SIZE) -> list[by
     return [bytes(data[i * block_size : (i + 1) * block_size]) for i in range(block_cnt)]
 
 
-def pad(data: bytes, block_size: int = BLOCK_SIZE) -> bytes:
+def pad(data: bytes, block_size: int = AES_BLOCK_SIZE) -> bytes:
     """Add PKCS#7 padding (always at least one byte)."""
     padding = block_size - (len(data) % block_size)
     return bytes(data) + bytes([padding] * padding)
 
 
-def unpad(data: bytes, block_size: int = BLOCK_SIZE) -> bytes:
+def unpad(data: bytes, block_size: int = AES_BLOCK_SIZE) -> bytes:
     """Remove and validate PKCS#7 padding; ValueError if invalid."""
     block_cnt, rem = divmod(len(data), block_size)
 
@@ -75,17 +73,17 @@ def unpad(data: bytes, block_size: int = BLOCK_SIZE) -> bytes:
 
 def ecb_encrypt(plaintext: bytes, key: bytes) -> bytes:
     """Encrypt block-aligned data in ECB mode."""
-    blocks = split_blocks(plaintext, BLOCK_SIZE)
+    blocks = split_blocks(plaintext, AES_BLOCK_SIZE)
     return b"".join(encrypt_block(block, key) for block in blocks)
 
 
 def ecb_decrypt(ciphertext: bytes, key: bytes) -> bytes:
     """Decrypt block-aligned data in ECB mode."""
-    blocks = split_blocks(ciphertext, BLOCK_SIZE)
+    blocks = split_blocks(ciphertext, AES_BLOCK_SIZE)
     return b"".join(decrypt_block(block, key) for block in blocks)
 
 
-def repeated_blocks(data: bytes, block_size: int = BLOCK_SIZE) -> int:
+def repeated_blocks(data: bytes, block_size: int = AES_BLOCK_SIZE) -> int:
     """Count blocks that duplicate an earlier block."""
     blocks = split_blocks(data, block_size)
     return len(blocks) - len(set(blocks))
@@ -93,10 +91,10 @@ def repeated_blocks(data: bytes, block_size: int = BLOCK_SIZE) -> int:
 
 def cbc_encrypt(plaintext: bytes, key: bytes, iv: bytes) -> bytes:
     """Encrypt block-aligned data in CBC mode with the given IV."""
-    if len(iv) != BLOCK_SIZE:
-        raise ValueError(f"IV must be exactly {BLOCK_SIZE} bytes, got {len(iv)}.")
+    if len(iv) != AES_BLOCK_SIZE:
+        raise ValueError(f"IV must be exactly {AES_BLOCK_SIZE} bytes, got {len(iv)}.")
 
-    blocks = split_blocks(plaintext, BLOCK_SIZE)
+    blocks = split_blocks(plaintext, AES_BLOCK_SIZE)
 
     prev = iv
     ciphertext = []
@@ -109,10 +107,10 @@ def cbc_encrypt(plaintext: bytes, key: bytes, iv: bytes) -> bytes:
 
 def cbc_decrypt(ciphertext: bytes, key: bytes, iv: bytes) -> bytes:
     """Decrypt block-aligned data in CBC mode with the given IV."""
-    if len(iv) != BLOCK_SIZE:
-        raise ValueError(f"IV must be exactly {BLOCK_SIZE} bytes, got {len(iv)}.")
+    if len(iv) != AES_BLOCK_SIZE:
+        raise ValueError(f"IV must be exactly {AES_BLOCK_SIZE} bytes, got {len(iv)}.")
 
-    blocks = split_blocks(ciphertext, BLOCK_SIZE)
+    blocks = split_blocks(ciphertext, AES_BLOCK_SIZE)
     blocks = [iv] + blocks
 
     plaintext = []
@@ -125,32 +123,33 @@ def cbc_decrypt(ciphertext: bytes, key: bytes, iv: bytes) -> bytes:
 
 def encrypt_message(message: bytes, key: bytes) -> bytes:
     """Pad and CBC-encrypt a message under a random IV; return IV || ciphertext."""
-    iv = os.urandom(BLOCK_SIZE)
-    msg_pad = pad(message, BLOCK_SIZE)
+    iv = os.urandom(AES_BLOCK_SIZE)
+    msg_pad = pad(message, AES_BLOCK_SIZE)
     return iv + cbc_encrypt(msg_pad, key, iv)
 
 
 def decrypt_message(data: bytes, key: bytes) -> bytes:
     """Split off the IV, CBC-decrypt and unpad; inverse of encrypt_message."""
-    if len(data) % BLOCK_SIZE != 0 or len(data) <= BLOCK_SIZE:
+    if len(data) % AES_BLOCK_SIZE != 0 or len(data) <= AES_BLOCK_SIZE:
         raise ValueError(
-            f"Data must be an IV plus at least one {BLOCK_SIZE}-byte block, got {len(data)} bytes."
+            f"Data must be an IV plus at least one {AES_BLOCK_SIZE}-byte block, "
+            f"got {len(data)} bytes."
         )
 
-    iv = data[:BLOCK_SIZE]
-    ciphertext = data[BLOCK_SIZE:]
+    iv = data[:AES_BLOCK_SIZE]
+    ciphertext = data[AES_BLOCK_SIZE:]
     msg_pad = cbc_decrypt(ciphertext, key, iv)
-    msg = unpad(msg_pad, BLOCK_SIZE)
+    msg = unpad(msg_pad, AES_BLOCK_SIZE)
 
     return msg
 
 
-def inc_counter(block: bytes, bits: int = 128) -> bytes:
+def inc_counter(block: bytes, bits: int = 8 * AES_BLOCK_SIZE) -> bytes:
     """Increment the low `bits` bits of a counter block mod 2^bits; the rest stays unchanged."""
-    if len(block) != BLOCK_SIZE:
-        raise ValueError(f"Counter block must be exactly {BLOCK_SIZE} bytes, got {len(block)}.")
-    if not (1 <= bits <= 8 * BLOCK_SIZE):
-        raise ValueError(f"Counter bits must be between 1 and {8 * BLOCK_SIZE}, got {bits}.")
+    if len(block) != AES_BLOCK_SIZE:
+        raise ValueError(f"Counter block must be exactly {AES_BLOCK_SIZE} bytes, got {len(block)}.")
+    if not (1 <= bits <= 8 * AES_BLOCK_SIZE):
+        raise ValueError(f"Counter bits must be between 1 and {8 * AES_BLOCK_SIZE}, got {bits}.")
 
     qbit, rbit = divmod(bits, 8)
     byte_len = qbit + 1
@@ -167,14 +166,16 @@ def inc_counter(block: bytes, bits: int = 128) -> bytes:
     return bytes(new_block[1:])
 
 
-def ctr_encrypt(data: bytes, key: bytes, counter_block: bytes, counter_bits: int = 128) -> bytes:
+def ctr_encrypt(
+    data: bytes, key: bytes, counter_block: bytes, counter_bits: int = 8 * AES_BLOCK_SIZE
+) -> bytes:
     """Encrypt data of any length in CTR mode, starting from the given counter block."""
-    if len(counter_block) != BLOCK_SIZE:
+    if len(counter_block) != AES_BLOCK_SIZE:
         raise ValueError(
-            f"Counter block must be exactly {BLOCK_SIZE} bytes, got {len(counter_block)}."
+            f"Counter block must be exactly {AES_BLOCK_SIZE} bytes, got {len(counter_block)}."
         )
 
-    blocks = split_blocks_unaligned(data, BLOCK_SIZE)
+    blocks = split_blocks_unaligned(data, AES_BLOCK_SIZE)
 
     iv_ctr = counter_block
     ciphertext = []
@@ -185,17 +186,19 @@ def ctr_encrypt(data: bytes, key: bytes, counter_block: bytes, counter_bits: int
     return b"".join(ciphertext)
 
 
-def ctr_decrypt(data: bytes, key: bytes, counter_block: bytes, counter_bits: int = 128) -> bytes:
+def ctr_decrypt(
+    data: bytes, key: bytes, counter_block: bytes, counter_bits: int = 8 * AES_BLOCK_SIZE
+) -> bytes:
     """Decrypt data in CTR mode; the same operation as ctr_encrypt."""
     return ctr_encrypt(data, key, counter_block, counter_bits)
 
 
 def ofb_encrypt(plaintext: bytes, key: bytes, iv: bytes) -> bytes:
     """Encrypt data of any length in OFB mode with the given IV."""
-    if len(iv) != BLOCK_SIZE:
-        raise ValueError(f"IV must be exactly {BLOCK_SIZE} bytes, got {len(iv)}.")
+    if len(iv) != AES_BLOCK_SIZE:
+        raise ValueError(f"IV must be exactly {AES_BLOCK_SIZE} bytes, got {len(iv)}.")
 
-    blocks = split_blocks_unaligned(plaintext, BLOCK_SIZE)
+    blocks = split_blocks_unaligned(plaintext, AES_BLOCK_SIZE)
 
     out = iv
     ciphertext = []

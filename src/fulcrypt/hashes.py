@@ -12,8 +12,12 @@ Design decisions:
 import math
 
 MASK32 = 0xFFFFFFFF
-SHA256_BLOCK_SIZE = 64
-SHA256_DIGEST_SIZE = 32
+SHA256_WORD_SIZE = 4  # bytes per 32-bit word
+SHA256_STATE_WORDS = 8
+SHA256_ROUNDS = 64
+SHA256_LENGTH_SIZE = 8  # the 64-bit message length at the end of the padding
+SHA256_BLOCK_SIZE = 16 * SHA256_WORD_SIZE  # 64 bytes
+SHA256_DIGEST_SIZE = SHA256_STATE_WORDS * SHA256_WORD_SIZE  # 32 bytes
 
 
 def sha2_constants() -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
@@ -36,8 +40,8 @@ def sha2_constants() -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]
 
     primes = [p for p in range(312) if sieve[p]]
 
-    if len(primes) != 64:
-        raise RuntimeError(f"Expected 64 primes below 312, found {len(primes)}.")
+    if len(primes) != SHA256_ROUNDS:
+        raise RuntimeError(f"Expected {SHA256_ROUNDS} primes below 312, found {len(primes)}.")
 
     def icbrt(n: int) -> int:
         """Integer cube root: the largest m with m^3 <= n (binary search)."""
@@ -55,7 +59,7 @@ def sha2_constants() -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]
     k: list[int] = []
     h0224: list[int] = []
     for p in primes:
-        if len(h0) < 8:
+        if len(h0) < SHA256_STATE_WORDS:
             h0.append(math.isqrt(p << 64) & MASK32)
         k.append(icbrt(p << 96) & MASK32)
         if 8 < len(k) < 17:
@@ -69,9 +73,9 @@ SHA256_H0, SHA256_K, SHA224_H0 = sha2_constants()
 
 def sha256_pad(message: bytes) -> bytes:
     """Pad a message to a multiple of 64 bytes: 0x80, zeros, then the 64-bit bit length."""
-    length = (len(message) * 8).to_bytes(8, "big")
+    length = (len(message) * 8).to_bytes(SHA256_LENGTH_SIZE, "big")
     rem = len(message) % SHA256_BLOCK_SIZE
-    zero_len = SHA256_BLOCK_SIZE - rem - 9
+    zero_len = SHA256_BLOCK_SIZE - rem - 1 - SHA256_LENGTH_SIZE  # 0x80 byte, length
     if zero_len < 0:
         zero_len += SHA256_BLOCK_SIZE
 
@@ -80,17 +84,18 @@ def sha256_pad(message: bytes) -> bytes:
 
 def sha256_compress(state: tuple[int, ...], block: bytes) -> tuple[int, ...]:
     """Compress one 64-byte block into an 8-word state; return the new state."""
-    if len(state) != 8:
-        raise ValueError(f"State must be exactly 8 words, got {len(state)}.")
+    if len(state) != SHA256_STATE_WORDS:
+        raise ValueError(f"State must be exactly {SHA256_STATE_WORDS} words, got {len(state)}.")
     if len(block) != SHA256_BLOCK_SIZE:
         raise ValueError(f"Block must be exactly {SHA256_BLOCK_SIZE} bytes, got {len(block)}.")
 
     def right_rot(n, k):
         """Rotate a 32-bit word right by k bits."""
-        return ((n >> k) | (n << (32 - k))) & MASK32
+        return ((n >> k) | (n << (8 * SHA256_WORD_SIZE - k))) & MASK32
 
-    words = [int.from_bytes(block[i : i + 4], "big") for i in range(0, SHA256_BLOCK_SIZE, 4)]
-    while len(words) < 64:
+    w = SHA256_WORD_SIZE
+    words = [int.from_bytes(block[i : i + w], "big") for i in range(0, SHA256_BLOCK_SIZE, w)]
+    while len(words) < SHA256_ROUNDS:
         n = len(words)
         s0 = right_rot(words[n - 15], 7) ^ right_rot(words[n - 15], 18) ^ (words[n - 15] >> 3)
         s1 = right_rot(words[n - 2], 17) ^ right_rot(words[n - 2], 19) ^ (words[n - 2] >> 10)
@@ -99,7 +104,7 @@ def sha256_compress(state: tuple[int, ...], block: bytes) -> tuple[int, ...]:
 
     a, b, c, d, e, f, g, h = state
 
-    for t in range(64):
+    for t in range(SHA256_ROUNDS):
         s1 = right_rot(e, 6) ^ right_rot(e, 11) ^ right_rot(e, 25)
         ch = (e & f) ^ ((~e) & g)
         temp1 = h + s1 + ch + SHA256_K[t] + words[t] & MASK32
@@ -131,7 +136,7 @@ def sha256(data: bytes) -> bytes:
     for i in range(0, len(padded), SHA256_BLOCK_SIZE):
         state = sha256_compress(state, padded[i : i + SHA256_BLOCK_SIZE])
 
-    return b"".join(n.to_bytes(4, "big") for n in state)
+    return b"".join(n.to_bytes(SHA256_WORD_SIZE, "big") for n in state)
 
 
 def sha224(data: bytes) -> bytes:
@@ -142,7 +147,7 @@ def sha224(data: bytes) -> bytes:
     for i in range(0, len(padded), SHA256_BLOCK_SIZE):
         state = sha256_compress(state, padded[i : i + SHA256_BLOCK_SIZE])
 
-    return b"".join(n.to_bytes(4, "big") for n in state[:-1])
+    return b"".join(n.to_bytes(SHA256_WORD_SIZE, "big") for n in state[:-1])
 
 
 def sha256_extend(digest: bytes, original_length: int, suffix: bytes) -> tuple[bytes, bytes]:
@@ -164,8 +169,9 @@ def sha256_extend(digest: bytes, original_length: int, suffix: bytes) -> tuple[b
 
     extension = bytes(suffix) + new_pad
 
-    state = tuple(int.from_bytes(digest[i : i + 4], "big") for i in range(0, 32, 4))
+    w = SHA256_WORD_SIZE
+    state = tuple(int.from_bytes(digest[i : i + w], "big") for i in range(0, SHA256_DIGEST_SIZE, w))
     for i in range(0, len(extension), SHA256_BLOCK_SIZE):
         state = sha256_compress(state, extension[i : i + SHA256_BLOCK_SIZE])
 
-    return (glue + bytes(suffix), b"".join(n.to_bytes(4, "big") for n in state))
+    return (glue + bytes(suffix), b"".join(n.to_bytes(SHA256_WORD_SIZE, "big") for n in state))

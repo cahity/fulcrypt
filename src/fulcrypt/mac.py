@@ -10,10 +10,16 @@ Design decisions:
   K2 for a 10..0-padded one. Subkeys come from doubling L = AES(K, 0) in GF(2^128).
 """
 
+from fulcrypt.aes import AES_BLOCK_SIZE
 from fulcrypt.aes import encrypt_block as aes_encrypt_block
 from fulcrypt.hashes import SHA256_BLOCK_SIZE, sha256
-from fulcrypt.modes import BLOCK_SIZE as AES_BLOCK_SIZE
 from fulcrypt.modes import cbc_encrypt, xor_bytes
+
+# CMAC's doubling (SP 800-38B): the 128 and the reduction constant 0x87 = x^7 + x^2 + x + 1
+# belong together (x^128 + x^7 + x^2 + x + 1). A 64-bit block cipher would need 0x1B instead.
+CMAC_BITS = 128
+CMAC_RB = 0x87
+assert CMAC_BITS == 8 * AES_BLOCK_SIZE
 
 
 def hmac_sha256(key: bytes, message: bytes) -> bytes:
@@ -67,19 +73,20 @@ def cmac_subkeys(key: bytes) -> tuple[bytes, bytes]:
     def dbl_gf2to128(n):
         """Multiply by x: shift left, and XOR 0x87 if a bit fell off the top."""
         dbl_n = n << 1
-        mask = (1 << 128) - 1
-        flag = (dbl_n & (1 << 128)) > 0
+        top = 1 << CMAC_BITS
+        mask = top - 1
+        flag = (dbl_n & top) > 0
         dbl_n &= mask
         if flag:
-            dbl_n ^= 0x87
+            dbl_n ^= CMAC_RB
         return dbl_n
 
-    base = aes_encrypt_block(b"\x00" * 16, key)
+    base = aes_encrypt_block(b"\x00" * AES_BLOCK_SIZE, key)
     basei = int.from_bytes(base, "big")
     k1 = dbl_gf2to128(basei)
     k2 = dbl_gf2to128(k1)
 
-    return (k1.to_bytes(16, "big"), k2.to_bytes(16, "big"))
+    return (k1.to_bytes(AES_BLOCK_SIZE, "big"), k2.to_bytes(AES_BLOCK_SIZE, "big"))
 
 
 def cmac(key: bytes, message: bytes) -> bytes:
@@ -87,13 +94,13 @@ def cmac(key: bytes, message: bytes) -> bytes:
     k1, k2 = cmac_subkeys(key)
 
     n = len(message)
-    step = max(0, ((n + 15) // 16) - 1)
-    last = bytes(message[step * 16 :])
-    if len(last) < 16:
-        last = last + b"\x80" + b"\x00" * (16 - len(last) - 1)
+    step = max(0, ((n + AES_BLOCK_SIZE - 1) // AES_BLOCK_SIZE) - 1)
+    last = bytes(message[step * AES_BLOCK_SIZE :])
+    if len(last) < AES_BLOCK_SIZE:
+        last = last + b"\x80" + b"\x00" * (AES_BLOCK_SIZE - len(last) - 1)
         last = xor_bytes(last, k2)
     else:
         last = xor_bytes(last, k1)
 
-    new_msg = bytes(message[: step * 16]) + last
+    new_msg = bytes(message[: step * AES_BLOCK_SIZE]) + last
     return cbc_mac(key, new_msg)

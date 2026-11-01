@@ -14,22 +14,78 @@ Design decisions:
 import os
 from typing import Any
 
+from fulcrypt.aes import AES_BLOCK_SIZE
 from fulcrypt.elements import GF2n
+from fulcrypt.hashes import SHA256_DIGEST_SIZE
 from fulcrypt.kdf import hkdf
 from fulcrypt.mac import hmac_sha256, hmac_sha256_verify
-from fulcrypt.modes import ctr_decrypt, ctr_encrypt
+from fulcrypt.modes import ctr_decrypt, ctr_encrypt, xor_bytes
 
+ETM_ENC_KEY_SIZE = 16  # AES-128
+ETM_MAC_KEY_SIZE = SHA256_DIGEST_SIZE
+ETM_NONCE_SIZE = AES_BLOCK_SIZE  # the CTR initial counter block
+ETM_TAG_SIZE = SHA256_DIGEST_SIZE
+
+# The GCM spec fixes this polynomial; everything below is read from it.
 GCM_FIELD = GF2n((1 << 128) | (1 << 7) | (1 << 2) | (1 << 1) | (1 << 0))
+GCM_BITS = GCM_FIELD.modulus.degree  # 128
+GCM_BLOCK_SIZE = GCM_BITS // 8  # 16 bytes
+# GCM is defined only for 128-bit block ciphers: a field element is exactly one AES block.
+assert GCM_BLOCK_SIZE == AES_BLOCK_SIZE
+
+
+def etm_derive_keys(key: bytes) -> tuple[bytes, bytes]:
+    """Derive (k_enc, k_mac) from a master key of any length: 16 and 32 bytes, via HKDF."""
+    salt = b""
+    info_enc = b"encryption"
+    info_aut = b"authentication"
+
+    k_enc = hkdf(key, salt, info_enc, ETM_ENC_KEY_SIZE)
+    k_aut = hkdf(key, salt, info_aut, ETM_MAC_KEY_SIZE)
+
+    return (k_enc, k_aut)
+
+
+def etm_encrypt(key: bytes, message: bytes) -> bytes:
+    """Encrypt with AES-CTR under a random nonce, then MAC; return nonce || ciphertext || tag."""
+    k_enc, k_aut = etm_derive_keys(key)
+
+    nonce = os.urandom(ETM_NONCE_SIZE)
+    ciphertext = ctr_encrypt(message, k_enc, nonce)
+    data = nonce + ciphertext
+    tag = hmac_sha256(k_aut, data)
+
+    return data + tag
+
+
+def etm_decrypt(key: bytes, data: bytes) -> bytes:
+    """Verify the tag, then decrypt; ValueError if the data is too short or was modified."""
+    min_size = ETM_NONCE_SIZE + ETM_TAG_SIZE
+    if len(data) < min_size:
+        raise ValueError(
+            f"Data must be at least {min_size} bytes (nonce and tag), got {len(data)}."
+        )
+
+    k_enc, k_aut = etm_derive_keys(key)
+    data, tag = data[:-ETM_TAG_SIZE], data[-ETM_TAG_SIZE:]
+
+    if not hmac_sha256_verify(k_aut, data, tag):
+        raise ValueError("Authentication failed: wrong key, or the data was modified.")
+
+    nonce = data[:ETM_NONCE_SIZE]
+    ciphertext = data[ETM_NONCE_SIZE:]
+
+    return ctr_decrypt(ciphertext, k_enc, nonce)
 
 
 def block_to_gcm(block: bytes) -> Any:
     """Read a 16-byte block as a GCM_FIELD element: the first bit is the coefficient of x^0."""
-    if len(block) != 16:
-        raise ValueError(f"Block must be exactly 16 bytes, got {len(block)}.")
+    if len(block) != GCM_BLOCK_SIZE:
+        raise ValueError(f"Block must be exactly {GCM_BLOCK_SIZE} bytes, got {len(block)}.")
 
     bits = int.from_bytes(block, "big")
     rev = 0
-    for _ in range(128):
+    for _ in range(GCM_BITS):
         rev = (rev << 1) | (bits & 1)
         bits >>= 1
 
@@ -40,50 +96,37 @@ def gcm_to_block(element: Any) -> bytes:
     """Write a GCM_FIELD element as a 16-byte block, x^0 in the first bit."""
     bits = element.bits
     rev = 0
-    for _ in range(128):
+    for _ in range(GCM_BITS):
         rev = (rev << 1) | (bits & 1)
         bits >>= 1
 
-    block = rev.to_bytes(16, "big")
+    block = rev.to_bytes(GCM_BLOCK_SIZE, "big")
     return block
 
 
-def etm_derive_keys(key: bytes) -> tuple[bytes, bytes]:
-    """Derive (k_enc, k_mac) from a master key of any length: 16 and 32 bytes, via HKDF."""
-    salt = b""
-    info_enc = b"encryption"
-    info_aut = b"authentication"
+def ghash(h: bytes, aad: bytes, ciphertext: bytes) -> bytes:
+    """GHASH: fold the padded AAD, padded ciphertext and a lengths block into Y = (Y + X) * H."""
+    hgcm = block_to_gcm(h)
 
-    k_enc = hkdf(key, salt, info_enc, 16)
-    k_aut = hkdf(key, salt, info_aut, 32)
+    # len(AAD) || len(C) in bits, each filling half a block (64 bits).
+    half = GCM_BLOCK_SIZE // 2
+    lens = (len(aad) * 8).to_bytes(half, "big") + (len(ciphertext) * 8).to_bytes(half, "big")
 
-    return (k_enc, k_aut)
+    aad_r = len(aad) % GCM_BLOCK_SIZE
+    if aad_r != 0:
+        aad = aad + b"\x00" * (GCM_BLOCK_SIZE - aad_r)
 
+    cip_r = len(ciphertext) % GCM_BLOCK_SIZE
+    if cip_r != 0:
+        ciphertext = ciphertext + b"\x00" * (GCM_BLOCK_SIZE - cip_r)
 
-def etm_encrypt(key: bytes, message: bytes) -> bytes:
-    """Encrypt with AES-CTR under a random nonce, then MAC; return nonce || ciphertext || tag."""
-    k_enc, k_aut = etm_derive_keys(key)
+    tot = aad + ciphertext + lens
 
-    nonce = os.urandom(16)
-    ciphertext = ctr_encrypt(message, k_enc, nonce)
-    data = nonce + ciphertext
-    tag = hmac_sha256(k_aut, data)
+    prev = b"\x00" * GCM_BLOCK_SIZE
+    for i in range(0, len(tot), GCM_BLOCK_SIZE):
+        curr = tot[i : i + GCM_BLOCK_SIZE]
+        curr = xor_bytes(prev, curr)
+        cgcm = hgcm * block_to_gcm(curr)
+        prev = gcm_to_block(cgcm)
 
-    return data + tag
-
-
-def etm_decrypt(key: bytes, data: bytes) -> bytes:
-    """Verify the tag, then decrypt; ValueError if the data is too short or was modified."""
-    if len(data) < 48:
-        raise ValueError(f"Data must be at least 48 bytes (nonce and tag), got {len(data)}.")
-
-    k_enc, k_aut = etm_derive_keys(key)
-    data, tag = data[:-32], data[-32:]
-
-    if not hmac_sha256_verify(k_aut, data, tag):
-        raise ValueError("Authentication failed: wrong key, or the data was modified.")
-
-    nonce = data[:16]
-    ciphertext = data[16:]
-
-    return ctr_decrypt(ciphertext, k_enc, nonce)
+    return prev

@@ -1,6 +1,6 @@
 import pytest
 
-from fulcrypt import aead, kdf, mac, modes
+from fulcrypt import aead, aes, kdf, mac, modes
 
 # =============================================================================
 # Step 12: Encrypt-then-MAC  (slides 4c p13-14)
@@ -242,3 +242,115 @@ class TestGcmField:
     def test_rejects_wrong_block_size(self, length):
         with pytest.raises(ValueError):
             aead.block_to_gcm(bytes(length))
+
+
+# =============================================================================
+# Step 14: GHASH  (SP 800-38D section 6.4; vectors from the GCM spec, McGrew & Viega)
+# =============================================================================
+# Y_0 = 0, Y_i = (Y_{i-1} + X_i) * H over: AAD zero-padded to 16 bytes, ciphertext zero-padded,
+# then one block len(AAD) || len(C), both in BITS as 64-bit big-endian. Output: the last Y.
+
+H_ZERO_KEY = blk("66e94bd4ef8a2c3b884cfa59ca342b2e")  # AES(0^128, 0^128)
+H_TC3 = blk("b83b533708bf535d0aa6e52980d53b78")  # AES(feffe992..., 0^128)
+C_TC3 = blk(
+    "42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e"
+    "21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091473f5985"
+)
+A_TC4 = blk("feedfacedeadbeeffeedfacedeadbeefabaddad2")
+
+
+def pattern(n, step):
+    return bytes((step * i + 1) % 256 for i in range(n))
+
+
+def lengths_block(aad, ciphertext):
+    return (8 * len(aad)).to_bytes(8, "big") + (8 * len(ciphertext)).to_bytes(8, "big")
+
+
+class TestGhash:
+    @pytest.mark.parametrize(
+        "h, aad, ciphertext, expected",
+        [
+            pytest.param(H_ZERO_KEY, b"", b"", "00000000000000000000000000000000", id="TC1"),
+            pytest.param(
+                H_ZERO_KEY,
+                b"",
+                blk("0388dace60b6a392f328c2b971b2fe78"),
+                "f38cbb1ad69223dcc3457ae5b6b0f885",
+                id="TC2",
+            ),
+            pytest.param(H_TC3, b"", C_TC3, "7f1b32b81b820d02614f8895ac1d4eac", id="TC3"),
+            pytest.param(  # 20-byte AAD and 60-byte ciphertext: both need padding
+                H_TC3, A_TC4, C_TC3[:60], "698e57f70e6ecc7fd9463b7260a9ae5f", id="TC4"
+            ),
+        ],
+    )
+    def test_gcm_spec(self, h, aad, ciphertext, expected):
+        assert aead.ghash(h, aad, ciphertext).hex() == expected
+
+    # Extra padding cases (computed with an independent implementation of SP 800-38D Alg. 1).
+    @pytest.mark.parametrize(
+        "aad_len, c_len, expected",
+        [
+            (20, 0, "185df651e0c6cbc79c719d3183eaa624"),  # AAD only (GMAC)
+            (1, 0, "e75eec3c61fee545337e33d02023d0d7"),
+            (0, 1, "d04d539954afcba6c45d33779362c3c3"),
+            (16, 16, "1958da75216a6b8d2ea5ca3ae333c5dc"),  # no padding at all
+            (17, 33, "0a57586cffe16f7306ebc376c015e635"),  # one byte over, twice
+            (48, 15, "11596e0b3ee7172200c2135ccf7a53ba"),
+        ],
+    )
+    def test_padding_cases(self, aad_len, c_len, expected):
+        assert aead.ghash(H_TC3, pattern(aad_len, 5), pattern(c_len, 7)).hex() == expected
+
+    def test_h_is_aes_of_zero_block(self):
+        # Where H comes from in GCM (computed by the caller; ghash takes it as input).
+        assert aes.encrypt_block(bytes(16), bytes(16)) == H_ZERO_KEY
+
+    def test_one_block_by_hand(self):
+        # One ciphertext block, no AAD: ((C * H) + L) * H.
+        c = pattern(16, 3)
+        h, cg = aead.block_to_gcm(H_TC3), aead.block_to_gcm(c)
+        lg = aead.block_to_gcm(lengths_block(b"", c))
+        assert aead.ghash(H_TC3, b"", c) == aead.gcm_to_block((cg * h + lg) * h)
+
+    def test_aad_block_comes_first(self):
+        # One AAD block and one ciphertext block: (((A * H) + C) * H + L) * H.
+        a, c = pattern(16, 5), pattern(16, 7)
+        h = aead.block_to_gcm(H_TC3)
+        y = aead.block_to_gcm(a) * h
+        y = (y + aead.block_to_gcm(c)) * h
+        y = (y + aead.block_to_gcm(lengths_block(a, c))) * h
+        assert aead.ghash(H_TC3, a, c) == aead.gcm_to_block(y)
+
+    def test_aad_and_ciphertext_not_interchangeable(self):
+        # Same bytes, different role: the lengths block tells them apart.
+        x = pattern(32, 9)
+        assert aead.ghash(H_TC3, x, b"") != aead.ghash(H_TC3, b"", x)
+
+    def test_padding_is_not_ambiguous(self):
+        # Zero padding alone would make these equal; the lengths block separates them.
+        c = pattern(15, 9)
+        assert aead.ghash(H_TC3, b"", c) != aead.ghash(H_TC3, b"", c + b"\x00")
+
+    def test_lengths_are_in_bits(self):
+        # With all-zero data only the lengths block matters: Y = L * H.
+        expected = aead.block_to_gcm(lengths_block(b"", bytes(5))) * aead.block_to_gcm(H_TC3)
+        assert aead.ghash(H_TC3, b"", bytes(5)) == aead.gcm_to_block(expected)
+
+    def test_zero_h_gives_zero(self):
+        assert aead.ghash(bytes(16), pattern(20, 5), pattern(40, 7)) == bytes(16)
+
+    def test_returns_16_bytes(self):
+        out = aead.ghash(H_TC3, b"aad", b"ciphertext")
+        assert type(out) is bytes
+        assert len(out) == 16
+
+    def test_accepts_bytearray(self):
+        args = (H_TC3, A_TC4, C_TC3[:60])
+        assert aead.ghash(*(bytearray(a) for a in args)) == aead.ghash(*args)
+
+    @pytest.mark.parametrize("length", [0, 15, 17, 32])
+    def test_rejects_wrong_h_size(self, length):
+        with pytest.raises(ValueError):
+            aead.ghash(bytes(length), b"", b"")
