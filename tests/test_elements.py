@@ -283,3 +283,81 @@ class TestGF2PolyIrreducible:
             a = P(rng.randrange(2, 1 << 6))
             b = P(rng.randrange(2, 1 << 6))
             assert not (a * b).is_irreducible()
+
+
+# =============================================================================
+# Step 13: Rabin's irreducibility test (fast enough for GF(2^128))
+# =============================================================================
+# f of degree n is irreducible iff x^(2^n) = x (mod f) and gcd(x^(2^(n/q)) - x, f) = 1
+# for every prime q dividing n. Trial division would need ~2^65 divisions for degree 128.
+
+
+def poly(*exponents):
+    return P(sum(1 << e for e in exponents))
+
+
+def trial_division(f):
+    # The old definition, as an independent reference for small degrees.
+    if f.bits < 2:
+        return False
+    return all(f % P(g) != P(0) for g in range(2, 1 << (f.degree // 2 + 1)))
+
+
+GCM_POLY = poly(128, 7, 2, 1, 0)
+DEG64_A = poly(64, 4, 3, 1, 0)  # irreducible
+DEG64_B = poly(64, 11, 2, 1, 0)  # irreducible
+
+
+class TestGF2PolyRabin:
+    def test_agrees_with_trial_division_up_to_degree_10(self):
+        for bits in range(1 << 11):
+            assert P(bits).is_irreducible() == trial_division(P(bits)), P(bits)
+
+    @pytest.mark.parametrize("degree, count", [(9, 56), (10, 99), (11, 186), (12, 335)])
+    def test_count_by_degree(self, degree, count):
+        # OEIS A001037, beyond what trial division could check quickly.
+        found = sum(P(b).is_irreducible() for b in range(1 << degree, 1 << (degree + 1)))
+        assert found == count
+
+    @pytest.mark.parametrize(
+        "f",
+        [
+            pytest.param(GCM_POLY, id="GCM x^128+x^7+x^2+x+1"),
+            pytest.param(DEG64_A, id="x^64+x^4+x^3+x+1"),
+            pytest.param(poly(127, 1, 0), id="x^127+x+1 (prime degree)"),
+            pytest.param(poly(163, 7, 6, 3, 0), id="NIST B-163"),
+            pytest.param(poly(233, 74, 0), id="NIST B-233 trinomial"),
+        ],
+    )
+    def test_large_irreducible(self, f):
+        assert f.is_irreducible()
+
+    @pytest.mark.parametrize(
+        "f",
+        [
+            # Factor degrees 64 and 64 both divide 128, so x^(2^128) = x (mod f) holds:
+            # only the gcd condition (q = 2) catches these.
+            pytest.param(DEG64_A * DEG64_B, id="deg 64 * deg 64"),
+            pytest.param(DEG64_A * DEG64_A, id="deg 64 squared"),
+            # Factor degree 3 doesn't divide 128: the first condition fails.
+            pytest.param(poly(3, 1, 0) * poly(125, 72, 2, 1, 0), id="deg 3 * deg 125"),
+            pytest.param(poly(128, 0), id="x^128+1 = (x+1)^128"),
+            pytest.param(poly(128, 1, 0), id="x^128+x+1"),
+            pytest.param(poly(128, 7, 2, 1), id="x^128+x^7+x^2+x (divisible by x)"),
+        ],
+    )
+    def test_large_reducible(self, f):
+        assert not f.is_irreducible()
+
+    def test_gf2n_accepts_gcm_modulus(self):
+        # Constructing the field runs the irreducibility check.
+        from fulcrypt.elements import GF2n
+
+        F = GF2n(GCM_POLY.bits)
+        assert F.modulus.degree == 128
+
+    def test_gf2n_rejects_large_reducible(self):
+        from fulcrypt.elements import GF2n
+
+        with pytest.raises(ValueError):
+            GF2n((DEG64_A * DEG64_B).bits)

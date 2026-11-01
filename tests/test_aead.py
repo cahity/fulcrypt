@@ -166,3 +166,79 @@ class TestEtmRejectsTampering:
         assert len(data) == 48
         with pytest.raises(ValueError):
             aead.etm_decrypt(KEY, flip(data, 47))
+
+
+# =============================================================================
+# Step 13: GF(2^128) for GCM, and GCM's reflected bit order  (SP 800-38D section 6.3)
+# =============================================================================
+# GCM reads a 16-byte block as a polynomial with the coefficient of x^0 in the MOST significant
+# bit of byte 0, and x^127 in the least significant bit of byte 15: the reverse of GF2n's bits.
+
+
+def blk(hex_string):
+    return bytes.fromhex(hex_string)
+
+
+ONE = blk("80000000000000000000000000000000")  # x^0
+X1 = blk("40000000000000000000000000000000")  # x^1
+X127 = blk("00000000000000000000000000000001")  # x^127
+
+
+class TestGcmField:
+    def test_modulus(self):
+        assert aead.GCM_FIELD.modulus.bits == (1 << 128) | 0x87
+
+    def test_one(self):
+        assert aead.block_to_gcm(ONE) == aead.GCM_FIELD(1)
+
+    def test_x(self):
+        assert aead.block_to_gcm(X1) == aead.GCM_FIELD(0b10)
+
+    def test_x127(self):
+        assert aead.block_to_gcm(X127) == aead.GCM_FIELD(1 << 127)
+
+    def test_zero(self):
+        assert aead.block_to_gcm(bytes(16)) == aead.GCM_FIELD(0)
+
+    def test_byte_is_reversed_too(self):
+        # 0x01 in byte 0 is bit 7 of the block: x^7, not x^0.
+        assert aead.block_to_gcm(blk("01" + "00" * 15)) == aead.GCM_FIELD(1 << 7)
+
+    def test_e1_is_the_reduction(self):
+        # x * x^127 = x^128 = x^7 + x^2 + x + 1, which in GCM's order is the block e1 00..00.
+        product = aead.block_to_gcm(X1) * aead.block_to_gcm(X127)
+        assert product == aead.GCM_FIELD(0x87)
+        assert aead.gcm_to_block(product) == blk("e1000000000000000000000000000000")
+
+    def test_gcm_test_case_2_ghash(self):
+        # GCM spec test case 2 (key 0^128, one zero plaintext block):
+        # GHASH = ((C * H) + L) * H with L = len(A) || len(C) in bits = 0 || 128.
+        h = aead.block_to_gcm(blk("66e94bd4ef8a2c3b884cfa59ca342b2e"))
+        c = aead.block_to_gcm(blk("0388dace60b6a392f328c2b971b2fe78"))
+        lengths = aead.block_to_gcm((0).to_bytes(8, "big") + (128).to_bytes(8, "big"))
+        assert aead.gcm_to_block((c * h + lengths) * h).hex() == "f38cbb1ad69223dcc3457ae5b6b0f885"
+
+    def test_addition_is_block_xor(self):
+        a, b = blk("0123456789abcdef0123456789abcdef"), blk("fedcba9876543210fedcba9876543210")
+        total = aead.block_to_gcm(a) + aead.block_to_gcm(b)
+        assert aead.gcm_to_block(total) == bytes(x ^ y for x, y in zip(a, b, strict=True))
+
+    @pytest.mark.parametrize(
+        "block",
+        [ONE, X1, X127, bytes(16), b"\xff" * 16, blk("66e94bd4ef8a2c3b884cfa59ca342b2e")],
+    )
+    def test_round_trip(self, block):
+        assert aead.gcm_to_block(aead.block_to_gcm(block)) == block
+
+    def test_gcm_to_block_returns_16_bytes(self):
+        out = aead.gcm_to_block(aead.GCM_FIELD(1))
+        assert type(out) is bytes
+        assert out == ONE
+
+    def test_accepts_bytearray(self):
+        assert aead.block_to_gcm(bytearray(X1)) == aead.block_to_gcm(X1)
+
+    @pytest.mark.parametrize("length", [0, 15, 17, 32])
+    def test_rejects_wrong_block_size(self, length):
+        with pytest.raises(ValueError):
+            aead.block_to_gcm(bytes(length))

@@ -47,3 +47,24 @@ def power(a: Any, e: int) -> Any:
         base *= base
         e >>= 1
     return result
+
+
+def prime_divisors(n: int) -> list[int]:
+    """Return the distinct primes dividing n, in increasing order (sieve up to n)."""
+    lim = n + 1
+    sieve = [True] * lim
+    sieve[0] = False
+    sieve[1] = False
+
+    for p in range(2, lim):
+        if not sieve[p]:
+            continue
+
+        for pp in range(p + p, lim, p):
+            sieve[pp] = False
+
+    primes = [p for p in range(lim) if sieve[p]]
+
+    divs = [p for p in primes if n % p == 0]
+
+    return divs

@@ -69,7 +69,7 @@ SHA256_H0, SHA256_K, SHA224_H0 = sha2_constants()
 
 def sha256_pad(message: bytes) -> bytes:
     """Pad a message to a multiple of 64 bytes: 0x80, zeros, then the 64-bit bit length."""
-    length = (len(message) * 8).to_bytes(8, byteorder="big")
+    length = (len(message) * 8).to_bytes(8, "big")
     rem = len(message) % SHA256_BLOCK_SIZE
     zero_len = SHA256_BLOCK_SIZE - rem - 9
     if zero_len < 0:
@@ -89,9 +89,7 @@ def sha256_compress(state: tuple[int, ...], block: bytes) -> tuple[int, ...]:
         """Rotate a 32-bit word right by k bits."""
         return ((n >> k) | (n << (32 - k))) & MASK32
 
-    words = [
-        int.from_bytes(block[i : i + 4], byteorder="big") for i in range(0, SHA256_BLOCK_SIZE, 4)
-    ]
+    words = [int.from_bytes(block[i : i + 4], "big") for i in range(0, SHA256_BLOCK_SIZE, 4)]
     while len(words) < 64:
         n = len(words)
         s0 = right_rot(words[n - 15], 7) ^ right_rot(words[n - 15], 18) ^ (words[n - 15] >> 3)
@@ -133,7 +131,7 @@ def sha256(data: bytes) -> bytes:
     for i in range(0, len(padded), SHA256_BLOCK_SIZE):
         state = sha256_compress(state, padded[i : i + SHA256_BLOCK_SIZE])
 
-    return b"".join(n.to_bytes(4, byteorder="big") for n in state)
+    return b"".join(n.to_bytes(4, "big") for n in state)
 
 
 def sha224(data: bytes) -> bytes:
@@ -144,7 +142,7 @@ def sha224(data: bytes) -> bytes:
     for i in range(0, len(padded), SHA256_BLOCK_SIZE):
         state = sha256_compress(state, padded[i : i + SHA256_BLOCK_SIZE])
 
-    return b"".join(n.to_bytes(4, byteorder="big") for n in state[:-1])
+    return b"".join(n.to_bytes(4, "big") for n in state[:-1])
 
 
 def sha256_extend(digest: bytes, original_length: int, suffix: bytes) -> tuple[bytes, bytes]:
@@ -166,8 +164,8 @@ def sha256_extend(digest: bytes, original_length: int, suffix: bytes) -> tuple[b
 
     extension = bytes(suffix) + new_pad
 
-    state = tuple(int.from_bytes(digest[i : i + 4], byteorder="big") for i in range(0, 32, 4))
+    state = tuple(int.from_bytes(digest[i : i + 4], "big") for i in range(0, 32, 4))
     for i in range(0, len(extension), SHA256_BLOCK_SIZE):
         state = sha256_compress(state, extension[i : i + SHA256_BLOCK_SIZE])
 
-    return (glue + bytes(suffix), b"".join(n.to_bytes(4, byteorder="big") for n in state))
+    return (glue + bytes(suffix), b"".join(n.to_bytes(4, "big") for n in state))

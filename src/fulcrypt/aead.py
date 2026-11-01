@@ -1,4 +1,4 @@
-"""Authenticated encryption: Encrypt-then-MAC (AES-CTR + HMAC-SHA256).
+"""Authenticated encryption: Encrypt-then-MAC (AES-CTR + HMAC-SHA256), and GCM building blocks.
 
 Design decisions:
 - One master key; HKDF derives independent encryption and MAC keys (different info strings).
@@ -6,13 +6,46 @@ Design decisions:
 - Layout: nonce (16) || ciphertext || tag (32). The tag covers nonce || ciphertext, so the
   nonce can't be swapped either.
 - Decryption verifies the tag first (in constant time) and decrypts only valid data.
+- GCM's field is GF(2^128) with x^128 + x^7 + x^2 + x + 1, the usual (unreflected) modulus.
+  Only blocks are reflected: GCM puts the coefficient of x^0 in the first bit of the block,
+  so block_to_gcm / gcm_to_block reverse all 128 bits. The field itself stays standard.
 """
 
 import os
+from typing import Any
 
+from fulcrypt.elements import GF2n
 from fulcrypt.kdf import hkdf
 from fulcrypt.mac import hmac_sha256, hmac_sha256_verify
 from fulcrypt.modes import ctr_decrypt, ctr_encrypt
+
+GCM_FIELD = GF2n((1 << 128) | (1 << 7) | (1 << 2) | (1 << 1) | (1 << 0))
+
+
+def block_to_gcm(block: bytes) -> Any:
+    """Read a 16-byte block as a GCM_FIELD element: the first bit is the coefficient of x^0."""
+    if len(block) != 16:
+        raise ValueError(f"Block must be exactly 16 bytes, got {len(block)}.")
+
+    bits = int.from_bytes(block, "big")
+    rev = 0
+    for _ in range(128):
+        rev = (rev << 1) | (bits & 1)
+        bits >>= 1
+
+    return GCM_FIELD(rev)
+
+
+def gcm_to_block(element: Any) -> bytes:
+    """Write a GCM_FIELD element as a 16-byte block, x^0 in the first bit."""
+    bits = element.bits
+    rev = 0
+    for _ in range(128):
+        rev = (rev << 1) | (bits & 1)
+        bits >>= 1
+
+    block = rev.to_bytes(16, "big")
+    return block
 
 
 def etm_derive_keys(key: bytes) -> tuple[bytes, bytes]:

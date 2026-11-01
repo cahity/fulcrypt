@@ -6,7 +6,7 @@ import functools
 from dataclasses import dataclass
 from typing import Any
 
-from fulcrypt.algorithms import inverse_mod, power
+from fulcrypt.algorithms import inverse_mod, power, prime_divisors, xgcd
 
 
 @dataclass(frozen=True)
@@ -40,16 +40,33 @@ class GF2Poly:
         return GF2Poly(quotient), GF2Poly(a)
 
     def is_irreducible(self) -> bool:
-        """Check whether the polynomial is irreducible over GF(2).
+        """Check whether the polynomial is irreducible over GF(2), with Rabin's test.
 
-        A reducible polynomial has a factor of degree at most half its degree.
+        f of degree n is irreducible iff x^(2^n) = x (mod f) and gcd(x^(2^(n/q)) - x, f) = 1
+        for every prime q dividing n. Needs only n squarings mod f, so degree 128 is fast.
         """
         if self.bits < 2:
             return False
 
-        for factor in range(2, (1 << (self.degree // 2 + 1))):
-            if self % GF2Poly(factor) == GF2Poly(0):
+        n = self.degree
+        x = GF2Poly(0b10)
+
+        def helper(k: int) -> GF2Poly:
+            r = x % self
+            for _ in range(k):
+                r = (r * r) % self
+            return r
+
+        if helper(n) != x % self:
+            return False
+
+        divs = prime_divisors(n)
+        for p in divs:
+            h = helper(n // p) - x
+            d, _, _ = xgcd(h, self)
+            if d.degree != 0:
                 return False
+
         return True
 
     def __repr__(self) -> str:

@@ -75,11 +75,11 @@ def cmac_subkeys(key: bytes) -> tuple[bytes, bytes]:
         return dbl_n
 
     base = aes_encrypt_block(b"\x00" * 16, key)
-    basei = int.from_bytes(base, byteorder="big")
+    basei = int.from_bytes(base, "big")
     k1 = dbl_gf2to128(basei)
     k2 = dbl_gf2to128(k1)
 
-    return (k1.to_bytes(16, byteorder="big"), k2.to_bytes(16, byteorder="big"))
+    return (k1.to_bytes(16, "big"), k2.to_bytes(16, "big"))
 
 
 def cmac(key: bytes, message: bytes) -> bytes:

@@ -30,7 +30,7 @@ def hkdf_expand(prk: bytes, info: bytes, length: int) -> bytes:
     blocks = []
     curr_block = b""
     for block_i in range(1, num_blocks + 1):
-        curr_block = hmac_sha256(prk, curr_block + info + block_i.to_bytes(1, byteorder="big"))
+        curr_block = hmac_sha256(prk, curr_block + info + block_i.to_bytes(1, "big"))
         blocks.append(curr_block)
 
     return b"".join(blocks)[:length]
@@ -52,7 +52,7 @@ def pbkdf2_sha256(password: bytes, salt: bytes, iterations: int, length: int) ->
     num_blocks = (length + SHA256_DIGEST_SIZE - 1) // SHA256_DIGEST_SIZE
     blocks = []
     for block_i in range(1, num_blocks + 1):
-        curr_hmac = bytes(salt) + block_i.to_bytes(4, byteorder="big")
+        curr_hmac = bytes(salt) + block_i.to_bytes(4, "big")
         curr_block = b"\x00" * SHA256_DIGEST_SIZE
         for _ in range(iterations):
             curr_hmac = hmac_sha256(password, curr_hmac)

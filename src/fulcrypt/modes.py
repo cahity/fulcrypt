@@ -156,9 +156,9 @@ def inc_counter(block: bytes, bits: int = 128) -> bytes:
     byte_len = qbit + 1
     new_block = bytearray(1) + bytearray(block)
 
-    inc_int = int.from_bytes(new_block[-byte_len:], byteorder="big") + 1
+    inc_int = int.from_bytes(new_block[-byte_len:], "big") + 1
     inc_int_mod = inc_int & ((1 << bits) - 1)
-    inc_bytes = inc_int_mod.to_bytes(byte_len, byteorder="big")
+    inc_bytes = inc_int_mod.to_bytes(byte_len, "big")
 
     new_block[len(new_block) - byte_len + 1 :] = inc_bytes[1:]
     low = (1 << rbit) - 1
